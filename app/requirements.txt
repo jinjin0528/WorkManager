@@ -1,0 +1,3 @@
+# PySide6 등 필요 패키지 메모
+
+PySide6

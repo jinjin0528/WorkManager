@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "WorkManager ERP Connector",
+  "version": "0.1.0",
+  "description": "가천대학교 ERP의 연구과제 정보를 WorkManager로 가져오기 위한 확장 프로그램",
+  "permissions": [
+    "storage",
+    "cookies",
+    "tabs",
+    "webRequest",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://portal.gachon.ac.kr/*",
+    "https://gusanhak.gachon.ac.kr/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://portal.gachon.ac.kr/*",
+        "https://gusanhak.gachon.ac.kr/*"
+      ],
+      "js": ["inject.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://portal.gachon.ac.kr/*",
+        "https://gusanhak.gachon.ac.kr/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
