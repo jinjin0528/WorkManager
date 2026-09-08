@@ -60,4 +60,184 @@
     });
     return origOpen.call(this, method, url, ...rest);
   };
+
+  // -------------------------------------------------------------------
+  // 수입결의 상태 능동 조회
+  // - 화면 이동 없이, 과제번호를 바꿔가며 rtask_0008_t06_01_r001.jct 를
+  //   직접 POST 호출해서 "이 과제 수입결의 됐는지"를 순서대로 확인
+  // -------------------------------------------------------------------
+  const INCOME_STATUS_URL = "/rtask_0008_t06_01_r001.jct";
+  const DELAY_MS = 250; // 서버 부담을 줄이기 위한 요청 간 텀
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function toHyphenDate(yyyymmdd) {
+    if (!yyyymmdd || yyyymmdd.length !== 8) return null;
+    return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
+  }
+
+  function todayHyphen() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
+  async function fetchIncomeStatusForProject(prjNo, startDateHyphen) {
+    const body =
+      "_JSON_=" +
+      encodeURIComponent(
+        JSON.stringify({
+          START_DATE: startDateHyphen || "2020-01-01",
+          END_DATE: todayHyphen(),
+          PRJ_NO: prjNo,
+          RES_CD: "",
+        })
+      );
+
+    try {
+      const res = await origFetch(INCOME_STATUS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        },
+        body,
+        credentials: "include",
+      });
+      const data = await res.json();
+      return data && data.REC ? data.REC : [];
+    } catch (err) {
+      console.log(`[WorkManager] 수입결의 조회 실패 (${prjNo}):`, err);
+      return null; // 실패는 null로 구분 (0건과 다르게 취급)
+    }
+  }
+
+  async function collectIncomeStatus(projects) {
+    console.log(`[WorkManager] 수입결의 상태 조회 시작 - 총 ${projects.length}건`);
+    const result = {};
+
+    for (let i = 0; i < projects.length; i++) {
+      const { 과제번호: prjNo, 시작일: startDate } = projects[i];
+      if (!prjNo) continue;
+
+      const rec = await fetchIncomeStatusForProject(prjNo, toHyphenDate(startDate));
+      result[prjNo] = {
+        건수: rec === null ? null : rec.length,
+        총액: rec === null ? null : rec.reduce((sum, r) => sum + Number(r.REQ_AMT || 0), 0),
+        상세: rec,
+      };
+
+      console.log(
+        `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → ${
+          rec === null ? "조회실패" : rec.length + "건"
+        }`
+      );
+
+      if (i < projects.length - 1) await sleep(DELAY_MS);
+    }
+
+    console.log("[WorkManager] 수입결의 상태 조회 완료");
+    window.postMessage(
+      {
+        source: "workmanager-inject",
+        type: "INCOME_STATUS_RESULT",
+        payload: result,
+      },
+      "*"
+    );
+  }
+
+  // content.js로부터 조회 시작 요청을 받으면 실행
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    if (!event.data || event.data.source !== "workmanager-content") return;
+
+    if (event.data.type === "FETCH_INCOME_STATUS") {
+      collectIncomeStatus(event.data.payload || []);
+    }
+
+    if (event.data.type === "FETCH_FUND_STATUS") {
+      collectFundStatus(event.data.payload || []);
+    }
+  });
+
+  // -------------------------------------------------------------------
+  // 자금현황 능동 조회
+  // - 과제별 입금잔액(INQ_RCV_BAL_AMT)을 확인해서 "수입결의 필요 여부" 판정
+  //   입금잔액 > 0 이면 돈은 들어왔는데 아직 수입결의 처리가 안 된 상태
+  // -------------------------------------------------------------------
+  const FUND_STATUS_URL = "/rcomm_0041_01_r002.jct";
+
+  async function fetchFundStatusForProject(prjNo) {
+    const body =
+      "_JSON_=" +
+      encodeURIComponent(
+        JSON.stringify({
+          USEFAC_SEQ_NO: "10",
+          PRJ_NO: prjNo,
+          RES_CD: "",
+          INCLUDE_TAX: "Y",
+        })
+      );
+
+    try {
+      const res = await origFetch(FUND_STATUS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        },
+        body,
+        credentials: "include",
+      });
+      const data = await res.json();
+      return data || null;
+    } catch (err) {
+      console.log(`[WorkManager] 자금현황 조회 실패 (${prjNo}):`, err);
+      return null;
+    }
+  }
+
+  async function collectFundStatus(projects) {
+    console.log(`[WorkManager] 자금현황 조회 시작 - 총 ${projects.length}건`);
+    const result = {};
+
+    for (let i = 0; i < projects.length; i++) {
+      const { 과제번호: prjNo } = projects[i];
+      if (!prjNo) continue;
+
+      const data = await fetchFundStatusForProject(prjNo);
+
+      if (data === null) {
+        result[prjNo] = { 조회실패: true };
+      } else {
+        result[prjNo] = {
+          입금잔액: Number(data.INQ_RCV_BAL_AMT || 0),
+          협약액: Number(data.INQ_ORG_SUP_AMT || 0),
+          입금액: Number(data.INQ_RCV_AMT || 0),
+          청구가능액: Number(data.INQ_REQ_POSS_AMT || 0),
+          미승인액: Number(data.INQ_REQ_BAL_AMT || 0),
+        };
+      }
+
+      console.log(
+        `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → 입금잔액 ${
+          data ? Number(data.INQ_RCV_BAL_AMT || 0).toLocaleString() : "조회실패"
+        }`
+      );
+
+      if (i < projects.length - 1) await sleep(DELAY_MS);
+    }
+
+    console.log("[WorkManager] 자금현황 조회 완료");
+    window.postMessage(
+      {
+        source: "workmanager-inject",
+        type: "FUND_STATUS_RESULT",
+        payload: result,
+      },
+      "*"
+    );
+  }
 })();

@@ -1,7 +1,9 @@
 """
 WorkManager - 산학협력단 담당 과제 관리 프로그램
 - data/myProjects.json (크롬 확장에서 생성) 을 불러와 표로 보여줌
-- 과제별 진행상태/체크리스트/규정문서/메모는 data/memos.json 에 별도 저장 (앱이 직접 관리)
+- 과제별 진행상태/체크리스트/규정문서/메모/연락담당자는 data/memos.json 에 별도 저장
+- data/fundStatus.json (확장에서 내보낸 자금현황) 이 있으면 입금잔액 기준으로
+  청구가능액을 표시하고 수입결의 필요 여부를 판정함
 """
 
 import json
@@ -40,6 +42,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 PROJECTS_FILE = DATA_DIR / "myProjects.json"
 MEMOS_FILE = DATA_DIR / "memos.json"
+FUND_STATUS_FILE = DATA_DIR / "fundStatus.json"  # 확장에서 내보낸 자금현황(입금잔액) 데이터
 
 STATUS_OPTIONS = ["진행중", "종료", "완료", "보류", "검토필요"]
 
@@ -48,9 +51,9 @@ DEFAULT_CHECKLIST_TEMPLATE = []
 
 # 자주 쓰는 체크리스트 항목 - 드롭다운에서 골라서 빠르게 추가 가능
 PRESET_CHECKLIST_ITEMS = [
-    "안내메일 1차 발송",
-    "안내메일 2차 발송",
-    "안내메일 최종 발송",
+    "과제 개시 안내메일 발송",
+    "부가세 안내메일 발송",
+    "과제 종료 안내메일 발송",
     "수입결의 - 선금",
     "수입결의 - 잔금",
     "수입결의 - 일괄정산",
@@ -58,7 +61,7 @@ PRESET_CHECKLIST_ITEMS = [
     "정산보고서 제출",
 ]
 
-TABLE_HEADERS = ["과제명", "연구책임자", "지원기관", "종료일", "D-day", "상태"]
+TABLE_HEADERS = ["과제명", "연구책임자", "지원기관", "종료일", "D-day", "상태", "수입결의"]
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +124,13 @@ def resolve_status(memo_entry: dict, end_date):
     return default_status(end_date)
 
 
+def safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 STATUS_COLORS = {
     "진행중": QColor("#dbeafe"),   # 파랑
     "종료": QColor("#e5e7eb"),     # 회색
@@ -166,6 +176,17 @@ def save_memos(memos: dict):
         json.dump(memos, f, ensure_ascii=False, indent=2)
 
 
+def load_fund_status():
+    """확장의 '자금현황 조회'로 내보낸 fundStatus.json. 없으면 빈 dict."""
+    if not FUND_STATUS_FILE.exists():
+        return {}
+    try:
+        with open(FUND_STATUS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # 메인 윈도우
 # ---------------------------------------------------------------------------
@@ -173,10 +194,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("WorkManager - 담당 과제 관리")
-        self.resize(1250, 700)
+        self.resize(1300, 700)
 
         self.projects = []       # myProjects.json 원본
-        self.memos = {}          # 과제번호 -> {상태, 체크리스트, 규정문서, 메모, 업데이트}
+        self.memos = {}          # 과제번호 -> {상태, 체크리스트, 규정문서, 메모, 연락담당자, 업데이트}
+        self.fund_status = {}    # 과제번호 -> {입금잔액, 협약액, 입금액, 청구가능액, 미승인액}
         self.current_prj_no = None
         self.checklist_rows = []  # 현재 그려진 체크리스트 행 위젯들 (rebuild용)
 
@@ -241,6 +263,19 @@ class MainWindow(QMainWindow):
         self.detail_info.setStyleSheet("color: #555;")
         detail_layout.addWidget(self.detail_info)
 
+        self.income_alert = QLabel("")
+        self.income_alert.setWordWrap(True)
+        self.income_alert.setStyleSheet("font-weight: bold;")
+        detail_layout.addWidget(self.income_alert)
+
+        detail_layout.addWidget(self._separator())
+
+        # 연락 담당자 (수기 입력)
+        detail_layout.addWidget(QLabel("연락 담당자 (수기 입력)"))
+        self.contact_edit = QLineEdit()
+        self.contact_edit.setPlaceholderText("예: 김OO 대리 (02-1234-5678, kim@example.com)")
+        detail_layout.addWidget(self.contact_edit)
+
         detail_layout.addWidget(self._separator())
 
         # 진행상태
@@ -258,7 +293,7 @@ class MainWindow(QMainWindow):
 
         add_preset_row = QHBoxLayout()
         self.checklist_preset_combo = QComboBox()
-        self.checklist_preset_combo.addItem("자주 쓰는 항목 선택...")
+        self.checklist_preset_combo.addItem("자주 쓰는 항목 선택")
         self.checklist_preset_combo.addItems(PRESET_CHECKLIST_ITEMS)
         self.checklist_preset_combo.currentIndexChanged.connect(self.on_preset_selected)
         add_preset_row.addWidget(self.checklist_preset_combo)
@@ -266,7 +301,7 @@ class MainWindow(QMainWindow):
 
         add_row = QHBoxLayout()
         self.new_checklist_input = QLineEdit()
-        self.new_checklist_input.setPlaceholderText("체크리스트 항목 (프리셋 선택 또는 직접 입력)")
+        self.new_checklist_input.setPlaceholderText("직접 입력")
         add_item_btn = QPushButton("+")
         add_item_btn.setFixedWidth(28)
         add_item_btn.clicked.connect(self.add_checklist_item)
@@ -331,16 +366,21 @@ class MainWindow(QMainWindow):
     def reload_data(self):
         self.projects = load_projects()
         self.memos = load_memos()
+        self.fund_status = load_fund_status()
         self.apply_filter()
 
+        msg_parts = []
         if not self.projects:
-            self.status_bar.showMessage(
-                f"myProjects.json을 찾을 수 없거나 비어 있습니다. ({PROJECTS_FILE})"
-            )
+            msg_parts.append(f"myProjects.json 없음/비어있음 ({PROJECTS_FILE})")
         else:
-            self.status_bar.showMessage(
-                f"과제 {len(self.projects)}건 로드됨  |  {PROJECTS_FILE}"
-            )
+            msg_parts.append(f"과제 {len(self.projects)}건 로드됨")
+
+        if self.fund_status:
+            msg_parts.append(f"자금현황 {len(self.fund_status)}건 로드됨")
+        else:
+            msg_parts.append("자금현황 데이터 없음 (확장에서 내보내면 반영됩니다)")
+
+        self.status_bar.showMessage("  |  ".join(msg_parts))
 
     def apply_filter(self):
         keyword = self.search_input.text().strip()
@@ -388,6 +428,13 @@ class MainWindow(QMainWindow):
             )
         return projects
 
+    def income_flag(self, prj_no):
+        """자금현황 데이터 기준 수입결의 필요 여부. (필요/완료/-)"""
+        entry = self.fund_status.get(prj_no)
+        if not entry or entry.get("조회실패"):
+            return "-"
+        return "필요" if entry.get("입금잔액", 0) > 0 else "완료"
+
     def populate_table(self, projects):
         self.table.setRowCount(0)
         self.table.setRowCount(len(projects))
@@ -398,6 +445,7 @@ class MainWindow(QMainWindow):
             days = calc_dday(end_date)
             memo_entry = self.memos.get(prj_no, {})
             status = resolve_status(memo_entry, end_date)
+            income = self.income_flag(prj_no)
 
             values = [
                 p.get("과제명", ""),
@@ -406,10 +454,12 @@ class MainWindow(QMainWindow):
                 p.get("종료일", ""),
                 dday_text(days),
                 status,
+                income,
             ]
 
             color = dday_color(days)
-            status_col_index = len(values) - 1  # "상태"는 마지막 컬럼
+            status_col_index = 5
+            income_col_index = 6
 
             for col, val in enumerate(values):
                 item = QTableWidgetItem(str(val))
@@ -417,6 +467,11 @@ class MainWindow(QMainWindow):
                     status_color = STATUS_COLORS.get(status)
                     if status_color is not None:
                         item.setBackground(QBrush(status_color))
+                elif col == income_col_index:
+                    if val == "필요":
+                        item.setBackground(QBrush(QColor("#fee2e2")))
+                    elif val == "완료":
+                        item.setBackground(QBrush(QColor("#dcfce7")))
                 elif color is not None:
                     item.setBackground(QBrush(color))
                 self.table.setItem(row, col, item)
@@ -430,7 +485,6 @@ class MainWindow(QMainWindow):
     # ---------------- 체크리스트 UI ----------------
     def rebuild_checklist_ui(self, checklist):
         """checklist: [{"항목": str, "완료": bool}, ...]"""
-        # 기존 행 위젯 제거
         while self.checklist_container.count():
             item = self.checklist_container.takeAt(0)
             widget = item.widget()
@@ -458,7 +512,6 @@ class MainWindow(QMainWindow):
             self.checklist_rows.append((checkbox, entry.get("항목", "")))
 
     def get_current_checklist(self):
-        """memos.json에 저장된 체크리스트가 있으면 그걸, 없으면 기본 템플릿."""
         memo_entry = self.memos.get(self.current_prj_no, {})
         checklist = memo_entry.get("체크리스트")
         if checklist:
@@ -478,8 +531,6 @@ class MainWindow(QMainWindow):
         if not name:
             return
 
-        # 저장 파일이 아니라 "지금 화면에 떠 있는 상태"를 기준으로 추가해야
-        # 저장 전에 연달아 추가해도 이전 항목이 사라지지 않음
         current = [
             {"항목": item_name, "완료": checkbox.isChecked()}
             for checkbox, item_name in self.checklist_rows
@@ -541,18 +592,43 @@ class MainWindow(QMainWindow):
         self.current_prj_no = prj_no
         self.detail_widget.setEnabled(True)
 
+        fund_entry = self.fund_status.get(prj_no)
+
+        # 청구가능액 자리에 자금현황 API의 "입금잔액"을 표시.
+        # 자금현황 데이터가 없으면 myProjects.json에 있던 기존 값으로 대체 표시.
+        if fund_entry and not fund_entry.get("조회실패"):
+            claimable_display = f"{fund_entry.get('입금잔액', 0):,}원  (자금현황 조회 기준 입금잔액)"
+        else:
+            claimable_display = (
+                f"{safe_int(project.get('청구가능액', 0)):,}원  "
+                f"(참고용 - 자금현황 미조회, 확장에서 조회 필요)"
+            )
+
         self.detail_title.setText(project.get("과제명", ""))
         self.detail_info.setText(
             f"과제번호: {project.get('과제번호', '-')}\n"
             f"연구책임자: {project.get('연구책임자', '-')}\n"
             f"지원기관: {project.get('지원기관', '-')}\n"
             f"기간: {project.get('시작일', '-')} ~ {project.get('종료일', '-')}\n"
-            f"총사업비: {int(project.get('총사업비', 0) or 0):,}원\n"
-            f"청구가능액: {int(project.get('청구가능액', 0) or 0):,}원"
+            f"총사업비: {safe_int(project.get('총사업비', 0)):,}원\n"
+            f"청구가능액: {claimable_display}"
         )
+
+        income = self.income_flag(prj_no)
+        if income == "필요":
+            self.income_alert.setStyleSheet("font-weight: bold; color: #dc2626;")
+            self.income_alert.setText("⚠ 수입결의 필요 (입금잔액 있음)")
+        elif income == "완료":
+            self.income_alert.setStyleSheet("font-weight: bold; color: #16a34a;")
+            self.income_alert.setText("✓ 수입결의 완료 (입금잔액 없음)")
+        else:
+            self.income_alert.setStyleSheet("font-weight: bold; color: #9ca3af;")
+            self.income_alert.setText("자금현황 미조회 - 확장에서 '자금현황 조회' 실행 필요")
 
         end_date = parse_yyyymmdd(project.get("종료일", ""))
         memo_entry = self.memos.get(prj_no, {})
+
+        self.contact_edit.setText(memo_entry.get("연락담당자", ""))
 
         status = resolve_status(memo_entry, end_date)
         idx = self.status_combo.findText(status)
@@ -580,6 +656,7 @@ class MainWindow(QMainWindow):
             "상태": self.status_combo.currentText(),
             "체크리스트": checklist,
             "규정문서": getattr(self, "current_doc_path", None),
+            "연락담당자": self.contact_edit.text().strip(),
             "메모": self.memo_edit.toPlainText(),
             "업데이트": datetime.now().isoformat(timespec="seconds"),
         }
