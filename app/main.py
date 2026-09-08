@@ -12,7 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QColor, QBrush, QDesktopServices
+from PySide6.QtGui import QColor, QBrush, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -43,6 +43,7 @@ DATA_DIR = BASE_DIR / "data"
 PROJECTS_FILE = DATA_DIR / "myProjects.json"
 MEMOS_FILE = DATA_DIR / "memos.json"
 FUND_STATUS_FILE = DATA_DIR / "fundStatus.json"  # 확장에서 내보낸 자금현황(입금잔액) 데이터
+ICON_FILE = BASE_DIR / "app" / "assets" / "icon.png"  # 창/작업표시줄 아이콘
 
 STATUS_OPTIONS = ["진행중", "종료", "완료", "보류", "검토필요"]
 
@@ -61,7 +62,7 @@ PRESET_CHECKLIST_ITEMS = [
     "정산보고서 제출",
 ]
 
-TABLE_HEADERS = ["과제명", "연구책임자", "지원기관", "종료일", "D-day", "상태", "수입결의"]
+TABLE_HEADERS = ["과제명", "연구책임자", "지원기관", "종료일", "D-day", "상태", "구분"]
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +272,9 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self._separator())
 
         # 연락 담당자 (수기 입력)
-        detail_layout.addWidget(QLabel("연락 담당자 (수기 입력)"))
+        detail_layout.addWidget(QLabel("연락 담당자"))
         self.contact_edit = QLineEdit()
-        self.contact_edit.setPlaceholderText("예: 김OO 대리 (02-1234-5678, kim@example.com)")
+        self.contact_edit.setPlaceholderText("연락 담당자 정보를 입력하세요")
         detail_layout.addWidget(self.contact_edit)
 
         detail_layout.addWidget(self._separator())
@@ -601,7 +602,6 @@ class MainWindow(QMainWindow):
         else:
             claimable_display = (
                 f"{safe_int(project.get('청구가능액', 0)):,}원  "
-                f"(참고용 - 자금현황 미조회, 확장에서 조회 필요)"
             )
 
         self.detail_title.setText(project.get("과제명", ""))
@@ -666,8 +666,28 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    # Windows에서 작업표시줄 아이콘이 python.exe 기본 아이콘으로 뜨는 문제 방지
+    if sys.platform == "win32":
+        import ctypes
+ 
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "WorkManager.GachonSanhak.1.0"
+            )
+        except Exception:
+            pass
+ 
     app = QApplication(sys.argv)
+ 
+    if ICON_FILE.exists():
+        icon = QIcon(str(ICON_FILE))
+        app.setWindowIcon(icon)
+ 
     window = MainWindow()
+ 
+    if ICON_FILE.exists():
+        window.setWindowIcon(icon)
+ 
     window.show()
     sys.exit(app.exec())
 

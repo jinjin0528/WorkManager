@@ -5,6 +5,20 @@
 (function () {
   console.log("[WorkManager] inject.js 로드됨 (MAIN world)");
 
+  // 이 ERP는 일부 필드 키에 한글 설명이 괄호로 붙어서 내려옴
+  // 예: "INQ_RCV_BAL_AMT(입금잔액)" - 심지어 같은 배열 안에서도
+  // 첫 번째 항목만 괄호가 붙고 이후엔 안 붙는 경우가 있어서, 항상 괄호 앞부분만
+  // 잘라서 키를 통일시켜야 필드를 안정적으로 읽을 수 있음
+  function normalizeKeys(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    const result = {};
+    for (const key in obj) {
+      const baseKey = key.split("(")[0];
+      result[baseKey] = obj[key];
+    }
+    return result;
+  }
+
   // 타겟 API 파일명 - 과제 목록을 내려주는 요청
   const TARGET_URL_PATTERN = /rmain_0003_01_l001/;
 
@@ -107,7 +121,8 @@
         credentials: "include",
       });
       const data = await res.json();
-      return data && data.REC ? data.REC : [];
+      const rec = data && data.REC ? data.REC.map(normalizeKeys) : [];
+      return rec;
     } catch (err) {
       console.log(`[WorkManager] 수입결의 조회 실패 (${prjNo}):`, err);
       return null; // 실패는 null로 구분 (0건과 다르게 취급)
@@ -161,6 +176,10 @@
     if (event.data.type === "FETCH_FUND_STATUS") {
       collectFundStatus(event.data.payload || []);
     }
+
+    if (event.data.type === "FETCH_PROJECT_TYPE") {
+      collectProjectDetail(event.data.payload || []);
+    }
   });
 
   // -------------------------------------------------------------------
@@ -191,8 +210,8 @@
         body,
         credentials: "include",
       });
-      const data = await res.json();
-      return data || null;
+      const raw = await res.json();
+      return raw ? normalizeKeys(raw) : null;
     } catch (err) {
       console.log(`[WorkManager] 자금현황 조회 실패 (${prjNo}):`, err);
       return null;
@@ -235,6 +254,86 @@
       {
         source: "workmanager-inject",
         type: "FUND_STATUS_RESULT",
+        payload: result,
+      },
+      "*"
+    );
+  }
+
+  // -------------------------------------------------------------------
+  // 과제구분(수익과제/목적과제) 능동 조회
+  // - 과제정보 상세조회 API의 ACCT_UNIT_NM 값으로 판정
+  //   예: "글로벌_수익" → 수익과제, "일반_목적" → 목적과제
+  // -------------------------------------------------------------------
+  const PROJECT_DETAIL_URL = "/rtask_0008_t01_01_r001.jct";
+
+  function classifyProjectType(acctUnitNm) {
+    if (!acctUnitNm) return "-";
+    if (acctUnitNm.includes("수익")) return "수익";
+    if (acctUnitNm.includes("목적")) return "목적";
+    return "-";
+  }
+
+  async function fetchProjectDetailForProject(prjNo) {
+    const body =
+      "_JSON_=" +
+      encodeURIComponent(
+        JSON.stringify({
+          PRJ_NO: prjNo,
+          USEFAC_SEQ_NO: "10",
+        })
+      );
+
+    try {
+      const res = await origFetch(PROJECT_DETAIL_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        },
+        body,
+        credentials: "include",
+      });
+      const raw = await res.json();
+      return raw ? normalizeKeys(raw) : null;
+    } catch (err) {
+      console.log(`[WorkManager] 과제정보 조회 실패 (${prjNo}):`, err);
+      return null;
+    }
+  }
+
+  async function collectProjectDetail(projects) {
+    console.log(`[WorkManager] 과제구분 조회 시작 - 총 ${projects.length}건`);
+    const result = {};
+
+    for (let i = 0; i < projects.length; i++) {
+      const { 과제번호: prjNo } = projects[i];
+      if (!prjNo) continue;
+
+      const data = await fetchProjectDetailForProject(prjNo);
+
+      if (data === null) {
+        result[prjNo] = { 조회실패: true };
+      } else {
+        result[prjNo] = {
+          구분: classifyProjectType(data.ACCT_UNIT_NM),
+          계정단위명: data.ACCT_UNIT_NM || "",
+        };
+      }
+
+      console.log(
+        `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → ${
+          data ? classifyProjectType(data.ACCT_UNIT_NM) : "조회실패"
+        }`
+      );
+
+      if (i < projects.length - 1) await sleep(DELAY_MS);
+    }
+
+    console.log("[WorkManager] 과제구분 조회 완료");
+    window.postMessage(
+      {
+        source: "workmanager-inject",
+        type: "PROJECT_TYPE_RESULT",
         payload: result,
       },
       "*"

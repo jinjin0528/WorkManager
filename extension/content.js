@@ -122,6 +122,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ started: true });
     return true;
   }
+
+  if (message.type === "START_PROJECT_TYPE_CHECK") {
+    chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
+      const cached = result.workmanager_cachedProjects;
+      if (!cached || !cached.projects || cached.projects.length === 0) {
+        console.log("[WorkManager] 조회할 과제 목록이 없습니다. 먼저 과제 목록을 감지해주세요.");
+        return;
+      }
+
+      console.log(`[WorkManager] 과제구분 조회 요청 전달 (${cached.projects.length}건)`);
+      window.postMessage(
+        {
+          source: "workmanager-content",
+          type: "FETCH_PROJECT_TYPE",
+          payload: cached.projects,
+        },
+        "*"
+      );
+    });
+    sendResponse({ started: true });
+    return true;
+  }
 });
 
 // inject.js가 조회를 마치고 돌려준 결과를 저장
@@ -167,6 +189,22 @@ window.addEventListener("message", (event) => {
         console.log(
           `[WorkManager] 자금현황 조회 결과 저장 완료: 전체 ${total}건 중 수입결의 필요 ${needsAction}건`
         );
+      }
+    );
+  }
+
+  if (event.data.type === "PROJECT_TYPE_RESULT") {
+    const projectType = event.data.payload;
+    chrome.storage.local.set(
+      {
+        workmanager_projectType: {
+          data: projectType,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      () => {
+        const total = Object.keys(projectType).length;
+        console.log(`[WorkManager] 과제구분 조회 결과 저장 완료: 전체 ${total}건`);
       }
     );
   }
