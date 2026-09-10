@@ -33,6 +33,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QFrame,
+    QDialog,
+    QListWidget,
+    QListWidgetItem,
 )
 
 # ---------------------------------------------------------------------------
@@ -43,6 +46,7 @@ DATA_DIR = BASE_DIR / "data"
 PROJECTS_FILE = DATA_DIR / "myProjects.json"
 MEMOS_FILE = DATA_DIR / "memos.json"
 FUND_STATUS_FILE = DATA_DIR / "fundStatus.json"  # 확장에서 내보낸 자금현황(입금잔액) 데이터
+MAIL_TEMPLATES_FILE = DATA_DIR / "mailTemplates.json" 
 ICON_FILE = BASE_DIR / "app" / "assets" / "icon.png"  # 창/작업표시줄 아이콘
 
 STATUS_OPTIONS = ["진행중", "종료", "완료", "보류", "검토필요"]
@@ -177,6 +181,18 @@ def save_memos(memos: dict):
         json.dump(memos, f, ensure_ascii=False, indent=2)
 
 
+def load_mail_templates():
+    """메일 안내용 템플릿을 data/mailTemplates.json에서 불러온다."""
+    if not MAIL_TEMPLATES_FILE.exists():
+        return []
+    try:
+        with open(MAIL_TEMPLATES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 def load_fund_status():
     """확장의 '자금현황 조회'로 내보낸 fundStatus.json. 없으면 빈 dict."""
     if not FUND_STATUS_FILE.exists():
@@ -225,11 +241,16 @@ class MainWindow(QMainWindow):
         refresh_btn = QPushButton("새로고침")
         refresh_btn.clicked.connect(self.reload_data)
 
+        mail_btn = QPushButton("메일 안내")
+        mail_btn.clicked.connect(self.open_mail_templates)
+
         top_bar.addWidget(QLabel("검색:"))
         top_bar.addWidget(self.search_input)
         top_bar.addWidget(QLabel("정렬:"))
         top_bar.addWidget(self.sort_combo)
+        top_bar.addStretch()
         top_bar.addWidget(refresh_btn)
+        top_bar.addWidget(mail_btn)
         root_layout.addLayout(top_bar)
 
         # 본문: 좌측 표 + 우측 상세 패널
@@ -362,6 +383,84 @@ class MainWindow(QMainWindow):
         line.setFrameShape(QFrame.HLine)
         line.setStyleSheet("color: #e5e7eb;")
         return line
+
+    # ---------------- 메일 안내 ----------------
+    def open_mail_templates(self):
+        """메일 안내 버튼을 눌렀을 때 메일 양식 목록을 보여준다."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("메일 안내")
+        dialog.resize(850, 600)
+
+        layout = QVBoxLayout(dialog)
+
+        templates = load_mail_templates()
+
+        if not templates:
+            empty_label = QLabel(
+                "등록된 메일 양식이 없습니다.\n\n"
+                f"{MAIL_TEMPLATES_FILE} 파일에 메일 양식을 등록하면 여기에 표시됩니다."
+            )
+            empty_label.setWordWrap(True)
+            layout.addWidget(empty_label)
+
+            close_btn = QPushButton("닫기")
+            close_btn.clicked.connect(dialog.accept)
+            layout.addWidget(close_btn)
+            dialog.exec()
+            return
+
+        content_layout = QHBoxLayout()
+
+        template_list = QListWidget()
+        content_layout.addWidget(template_list, 1)
+
+        right_layout = QVBoxLayout()
+
+        subject_label = QLabel("제목")
+        subject_label.setStyleSheet("font-weight: bold;")
+        right_layout.addWidget(subject_label)
+
+        subject_edit = QLineEdit()
+        subject_edit.setReadOnly(True)
+        right_layout.addWidget(subject_edit)
+
+        body_label = QLabel("본문")
+        body_label.setStyleSheet("font-weight: bold;")
+        right_layout.addWidget(body_label)
+
+        body_edit = QTextEdit()
+        body_edit.setReadOnly(True)
+        right_layout.addWidget(body_edit)
+
+        content_layout.addLayout(right_layout, 3)
+        layout.addLayout(content_layout)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        close_btn = QPushButton("닫기")
+        close_btn.clicked.connect(dialog.accept)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
+
+        def show_template(item):
+            index = item.data(Qt.UserRole)
+            if index is None or index >= len(templates):
+                return
+            template = templates[index]
+            subject_edit.setText(str(template.get("제목", "")))
+            body_edit.setPlainText(str(template.get("본문", "")))
+
+        for index, template in enumerate(templates):
+            name = template.get("이름") or template.get("제목") or f"메일 양식 {index + 1}"
+            item = QListWidgetItem(str(name))
+            item.setData(Qt.UserRole, index)
+            template_list.addItem(item)
+
+        template_list.itemClicked.connect(show_template)
+        template_list.setCurrentRow(0)
+        show_template(template_list.item(0))
+
+        dialog.exec()
 
     # ---------------- 데이터 로드/표시 ----------------
     def reload_data(self):
