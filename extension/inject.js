@@ -21,12 +21,25 @@
 
   // 타겟 API 파일명 - 과제 목록을 내려주는 요청
   const TARGET_URL_PATTERN = /rmain_0003_01_l001/;
+  // 예산잔액이 포함된 과제 목록 요청 (자금현황 개별조회 대신 이걸로 한 번에 확보)
+  const BUDGET_LIST_PATTERN = /rmain_0005_01_r001/;
 
   function sendProjectData(data) {
     window.postMessage(
       {
         source: "workmanager-inject",
         type: "PROJECT_LIST_DATA",
+        payload: data,
+      },
+      "*"
+    );
+  }
+
+  function sendBudgetData(data) {
+    window.postMessage(
+      {
+        source: "workmanager-inject",
+        type: "BUDGET_LIST_DATA",
         payload: data,
       },
       "*"
@@ -53,6 +66,21 @@
           console.log("[WorkManager] fetch 응답 파싱 실패:", err);
         });
     }
+
+    if (BUDGET_LIST_PATTERN.test(url)) {
+      res
+        .clone()
+        .json()
+        .then((data) => {
+          if (data && data.REC) {
+            console.log("[WorkManager] 예산잔액 목록 응답 감지(fetch):", url);
+            sendBudgetData(data);
+          }
+        })
+        .catch((err) => {
+          console.log("[WorkManager] fetch 응답 파싱 실패:", err);
+        });
+    }
     return res;
   };
 
@@ -66,6 +94,18 @@
           if (data && data.REC) {
             console.log("[WorkManager] 과제 목록 응답 감지(XHR):", url);
             sendProjectData(data);
+          }
+        } catch (err) {
+          console.log("[WorkManager] XHR 응답 파싱 실패:", err);
+        }
+      }
+
+      if (BUDGET_LIST_PATTERN.test(url)) {
+        try {
+          const data = JSON.parse(this.responseText);
+          if (data && data.REC) {
+            console.log("[WorkManager] 예산잔액 목록 응답 감지(XHR):", url);
+            sendBudgetData(data);
           }
         } catch (err) {
           console.log("[WorkManager] XHR 응답 파싱 실패:", err);
@@ -173,92 +213,14 @@
       collectIncomeStatus(event.data.payload || []);
     }
 
-    if (event.data.type === "FETCH_FUND_STATUS") {
-      collectFundStatus(event.data.payload || []);
-    }
-
     if (event.data.type === "FETCH_PROJECT_TYPE") {
       collectProjectDetail(event.data.payload || []);
     }
+
+    if (event.data.type === "FETCH_CLAIMABLE_AMOUNT") {
+      collectClaimableAmount(event.data.payload || []);
+    }
   });
-
-  // -------------------------------------------------------------------
-  // 자금현황 능동 조회
-  // - 과제별 입금잔액(INQ_RCV_BAL_AMT)을 확인해서 "수입결의 필요 여부" 판정
-  //   입금잔액 > 0 이면 돈은 들어왔는데 아직 수입결의 처리가 안 된 상태
-  // -------------------------------------------------------------------
-  const FUND_STATUS_URL = "/rcomm_0041_01_r002.jct";
-
-  async function fetchFundStatusForProject(prjNo) {
-    const body =
-      "_JSON_=" +
-      encodeURIComponent(
-        JSON.stringify({
-          USEFAC_SEQ_NO: "10",
-          PRJ_NO: prjNo,
-          RES_CD: "",
-          INCLUDE_TAX: "Y",
-        })
-      );
-
-    try {
-      const res = await origFetch(FUND_STATUS_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
-        body,
-        credentials: "include",
-      });
-      const raw = await res.json();
-      return raw ? normalizeKeys(raw) : null;
-    } catch (err) {
-      console.log(`[WorkManager] 자금현황 조회 실패 (${prjNo}):`, err);
-      return null;
-    }
-  }
-
-  async function collectFundStatus(projects) {
-    console.log(`[WorkManager] 자금현황 조회 시작 - 총 ${projects.length}건`);
-    const result = {};
-
-    for (let i = 0; i < projects.length; i++) {
-      const { 과제번호: prjNo } = projects[i];
-      if (!prjNo) continue;
-
-      const data = await fetchFundStatusForProject(prjNo);
-
-      if (data === null) {
-        result[prjNo] = { 조회실패: true };
-      } else {
-        result[prjNo] = {
-          입금잔액: Number(data.INQ_RCV_BAL_AMT || 0),
-          협약액: Number(data.INQ_ORG_SUP_AMT || 0),
-          입금액: Number(data.INQ_RCV_AMT || 0),
-          청구가능액: Number(data.INQ_REQ_POSS_AMT || 0),
-          미승인액: Number(data.INQ_REQ_BAL_AMT || 0),
-        };
-      }
-
-      console.log(
-        `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → 입금잔액 ${
-          data ? Number(data.INQ_RCV_BAL_AMT || 0).toLocaleString() : "조회실패"
-        }`
-      );
-
-      if (i < projects.length - 1) await sleep(DELAY_MS);
-    }
-
-    console.log("[WorkManager] 자금현황 조회 완료");
-    window.postMessage(
-      {
-        source: "workmanager-inject",
-        type: "FUND_STATUS_RESULT",
-        payload: result,
-      },
-      "*"
-    );
-  }
 
   // -------------------------------------------------------------------
   // 과제구분(수익과제/목적과제) 능동 조회
@@ -334,6 +296,81 @@
       {
         source: "workmanager-inject",
         type: "PROJECT_TYPE_RESULT",
+        payload: result,
+      },
+      "*"
+    );
+  }
+
+  // -------------------------------------------------------------------
+  // 청구가능액 능동 조회/계산
+  // - 자금현황 API(rcomm_0041_01_r002.jct) 응답을 그대로 쓰지 않고
+  //   협약액 - (입금액공급가액 + 입금액부가세) 로 직접 계산
+  // -------------------------------------------------------------------
+  const CLAIMABLE_URL = "/rcomm_0041_01_r002.jct";
+
+  async function fetchClaimableForProject(prjNo) {
+    const body =
+      "_JSON_=" +
+      encodeURIComponent(
+        JSON.stringify({
+          USEFAC_SEQ_NO: "10",
+          PRJ_NO: prjNo,
+          RES_CD: "",
+          INCLUDE_TAX: "Y",
+        })
+      );
+
+    try {
+      const res = await origFetch(CLAIMABLE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        },
+        body,
+        credentials: "include",
+      });
+      const raw = await res.json();
+      return raw ? normalizeKeys(raw) : null;
+    } catch (err) {
+      console.log(`[WorkManager] 청구가능액 조회 실패 (${prjNo}):`, err);
+      return null;
+    }
+  }
+
+  async function collectClaimableAmount(projects) {
+    console.log(`[WorkManager] 청구가능액 조회 시작 - 총 ${projects.length}건`);
+    const result = {};
+
+    for (let i = 0; i < projects.length; i++) {
+      const { 과제번호: prjNo } = projects[i];
+      if (!prjNo) continue;
+
+      const data = await fetchClaimableForProject(prjNo);
+
+      if (data === null) {
+        result[prjNo] = null; // 조회 실패
+      } else {
+        const agrmt = Number(data.INQ_AGRMT_AMT || 0);
+        const rcv = Number(data.INQ_RCV_AMT || 0);
+        const tax = Number(data.INQ_TAX_AMT || 0);
+        result[prjNo] = agrmt - (rcv + tax);
+      }
+
+      console.log(
+        `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → 청구가능액 ${
+          result[prjNo] === null ? "조회실패" : result[prjNo].toLocaleString()
+        }`
+      );
+
+      if (i < projects.length - 1) await sleep(DELAY_MS);
+    }
+
+    console.log("[WorkManager] 청구가능액 조회 완료");
+    window.postMessage(
+      {
+        source: "workmanager-inject",
+        type: "CLAIMABLE_RESULT",
         payload: result,
       },
       "*"

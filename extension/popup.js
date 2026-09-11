@@ -72,4 +72,82 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     });
   });
+
+  // ---------------- 과제구분(수익/목적) 조회 ----------------
+  const typeCheckBtn = document.getElementById("typeCheckBtn");
+  const typeExportBtn = document.getElementById("typeExportBtn");
+
+  chrome.storage.local.get(["workmanager_projectType"], (result) => {
+    typeExportBtn.disabled = !(result.workmanager_projectType && result.workmanager_projectType.data);
+  });
+
+  typeCheckBtn.addEventListener("click", () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0]) return;
+
+      status.style.color = "#7c3aed";
+      status.textContent = "과제구분 조회 중... (완료까지 시간이 걸릴 수 있어요)";
+
+      chrome.tabs.sendMessage(tabs[0].id, { type: "START_PROJECT_TYPE_CHECK" }, () => {
+        if (chrome.runtime.lastError) {
+          status.style.color = "#dc2626";
+          status.textContent = "ERP 페이지에서 실행해주세요.";
+          return;
+        }
+        status.textContent =
+          "조회를 시작했습니다. 잠시 후 팝업을 다시 열어 내보내기 버튼을 눌러주세요.";
+        typeExportBtn.disabled = false;
+      });
+    });
+  });
+
+  typeExportBtn.addEventListener("click", () => {
+    chrome.storage.local.get(["workmanager_projectType"], (result) => {
+      const cached = result.workmanager_projectType;
+      if (!cached || !cached.data) return;
+
+      const blob = new Blob([JSON.stringify(cached.data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+
+      chrome.downloads.download(
+        {
+          url: url,
+          filename: "projectType.json",
+          conflictAction: "overwrite",
+          saveAs: false,
+        },
+        () => {
+          status.style.color = "#16a34a";
+          status.textContent = "projectType.json 다운로드 완료";
+        }
+      );
+    });
+  });
+
+  // ---------------- 청구가능액 조회 ----------------
+  // 결과는 과제 목록에 바로 병합되므로 별도 내보내기 버튼 없이
+  // 기존 "과제 목록 내보내기" 버튼으로 함께 나감
+  const claimableCheckBtn = document.getElementById("claimableCheckBtn");
+
+  claimableCheckBtn.addEventListener("click", () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0]) return;
+
+      status.style.color = "#ea580c";
+      status.textContent = "청구가능액 조회 중... (완료까지 시간이 걸릴 수 있어요)";
+
+      chrome.tabs.sendMessage(tabs[0].id, { type: "START_CLAIMABLE_CHECK" }, () => {
+        if (chrome.runtime.lastError) {
+          status.style.color = "#dc2626";
+          status.textContent = "ERP 페이지에서 실행해주세요.";
+          return;
+        }
+        status.textContent =
+          "조회를 시작했습니다. 완료되면 '과제 목록 내보내기'에 자동 반영됩니다.";
+        refreshCacheStatus();
+      });
+    });
+  });
 });

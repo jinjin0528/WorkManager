@@ -1,9 +1,9 @@
 """
 WorkManager - 산학협력단 담당 과제 관리 프로그램
-- data/myProjects.json (크롬 확장에서 생성) 을 불러와 표로 보여줌
+- data/myProjects.json (크롬 확장에서 생성, 청구가능액이 능동조회 계산값으로 병합될 수 있음) 을 불러와 표로 보여줌
+- data/projectType.json (확장의 '과제구분 조회'로 내보낸 결과) 이 있으면 수익/목적 과제 구분 표시
+- data/mailTemplates.json 에 등록해두면 "메일 안내" 버튼에서 양식을 바로 확인 가능
 - 과제별 진행상태/체크리스트/규정문서/메모/연락담당자는 data/memos.json 에 별도 저장
-- data/fundStatus.json (확장에서 내보낸 자금현황) 이 있으면 입금잔액 기준으로
-  청구가능액을 표시하고 수입결의 필요 여부를 판정함
 """
 
 import json
@@ -45,8 +45,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 PROJECTS_FILE = DATA_DIR / "myProjects.json"
 MEMOS_FILE = DATA_DIR / "memos.json"
-FUND_STATUS_FILE = DATA_DIR / "fundStatus.json"  # 확장에서 내보낸 자금현황(입금잔액) 데이터
-MAIL_TEMPLATES_FILE = DATA_DIR / "mailTemplates.json" 
+PROJECT_TYPE_FILE = DATA_DIR / "projectType.json"  # 확장의 '과제구분 조회'로 내보낸 데이터
+MAIL_TEMPLATES_FILE = DATA_DIR / "mailTemplates.json"  # 메일 안내 양식 목록
 ICON_FILE = BASE_DIR / "app" / "assets" / "icon.png"  # 창/작업표시줄 아이콘
 
 STATUS_OPTIONS = ["진행중", "종료", "완료", "보류", "검토필요"]
@@ -144,6 +144,11 @@ STATUS_COLORS = {
     "검토필요": QColor("#fee2e2"),  # 빨강
 }
 
+TYPE_COLORS = {
+    "수익": QColor("#dbeafe"),  # 파랑
+    "목적": QColor("#dcfce7"),  # 초록
+}
+
 SORT_OPTIONS = [
     "종료일 임박순",
     "종료일 늦은순",
@@ -181,6 +186,17 @@ def save_memos(memos: dict):
         json.dump(memos, f, ensure_ascii=False, indent=2)
 
 
+def load_project_types():
+    """확장의 '과제구분 조회'로 내보낸 projectType.json. 없으면 빈 dict."""
+    if not PROJECT_TYPE_FILE.exists():
+        return {}
+    try:
+        with open(PROJECT_TYPE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def load_mail_templates():
     """메일 안내용 템플릿을 data/mailTemplates.json에서 불러온다."""
     if not MAIL_TEMPLATES_FILE.exists():
@@ -193,17 +209,6 @@ def load_mail_templates():
         return []
 
 
-def load_fund_status():
-    """확장의 '자금현황 조회'로 내보낸 fundStatus.json. 없으면 빈 dict."""
-    if not FUND_STATUS_FILE.exists():
-        return {}
-    try:
-        with open(FUND_STATUS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
 # ---------------------------------------------------------------------------
 # 메인 윈도우
 # ---------------------------------------------------------------------------
@@ -213,9 +218,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("WorkManager - 담당 과제 관리")
         self.resize(1300, 700)
 
-        self.projects = []       # myProjects.json 원본
+        self.projects = []       # myProjects.json 원본 (청구가능액이 계산값으로 덮어써질 수 있음)
         self.memos = {}          # 과제번호 -> {상태, 체크리스트, 규정문서, 메모, 연락담당자, 업데이트}
-        self.fund_status = {}    # 과제번호 -> {입금잔액, 협약액, 입금액, 청구가능액, 미승인액}
+        self.project_types = {}  # 과제번호 -> {구분, 계정단위명}
         self.current_prj_no = None
         self.checklist_rows = []  # 현재 그려진 체크리스트 행 위젯들 (rebuild용)
 
@@ -228,7 +233,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
 
-        # 상단 툴바 영역 (검색 + 정렬 + 새로고침)
+        # 상단 툴바 영역 (검색 + 정렬 + 새로고침 + 메일 안내)
         top_bar = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("과제명 / 연구책임자 / 담당자 검색")
@@ -284,11 +289,6 @@ class MainWindow(QMainWindow):
         self.detail_info.setWordWrap(True)
         self.detail_info.setStyleSheet("color: #555;")
         detail_layout.addWidget(self.detail_info)
-
-        self.income_alert = QLabel("")
-        self.income_alert.setWordWrap(True)
-        self.income_alert.setStyleSheet("font-weight: bold;")
-        detail_layout.addWidget(self.income_alert)
 
         detail_layout.addWidget(self._separator())
 
@@ -466,7 +466,7 @@ class MainWindow(QMainWindow):
     def reload_data(self):
         self.projects = load_projects()
         self.memos = load_memos()
-        self.fund_status = load_fund_status()
+        self.project_types = load_project_types()
         self.apply_filter()
 
         msg_parts = []
@@ -475,10 +475,10 @@ class MainWindow(QMainWindow):
         else:
             msg_parts.append(f"과제 {len(self.projects)}건 로드됨")
 
-        if self.fund_status:
-            msg_parts.append(f"자금현황 {len(self.fund_status)}건 로드됨")
+        if self.project_types:
+            msg_parts.append(f"과제구분 {len(self.project_types)}건 로드됨")
         else:
-            msg_parts.append("자금현황 데이터 없음 (확장에서 내보내면 반영됩니다)")
+            msg_parts.append("과제구분 데이터 없음 (확장에서 내보내면 반영됩니다)")
 
         self.status_bar.showMessage("  |  ".join(msg_parts))
 
@@ -528,12 +528,11 @@ class MainWindow(QMainWindow):
             )
         return projects
 
-    def income_flag(self, prj_no):
-        """자금현황 데이터 기준 수입결의 필요 여부. (필요/완료/-)"""
-        entry = self.fund_status.get(prj_no)
+    def project_type_of(self, prj_no):
+        entry = self.project_types.get(prj_no)
         if not entry or entry.get("조회실패"):
             return "-"
-        return "필요" if entry.get("입금잔액", 0) > 0 else "완료"
+        return entry.get("구분", "-")
 
     def populate_table(self, projects):
         self.table.setRowCount(0)
@@ -545,7 +544,7 @@ class MainWindow(QMainWindow):
             days = calc_dday(end_date)
             memo_entry = self.memos.get(prj_no, {})
             status = resolve_status(memo_entry, end_date)
-            income = self.income_flag(prj_no)
+            ptype = self.project_type_of(prj_no)
 
             values = [
                 p.get("과제명", ""),
@@ -554,12 +553,12 @@ class MainWindow(QMainWindow):
                 p.get("종료일", ""),
                 dday_text(days),
                 status,
-                income,
+                ptype,
             ]
 
             color = dday_color(days)
             status_col_index = 5
-            income_col_index = 6
+            type_col_index = 6
 
             for col, val in enumerate(values):
                 item = QTableWidgetItem(str(val))
@@ -567,11 +566,10 @@ class MainWindow(QMainWindow):
                     status_color = STATUS_COLORS.get(status)
                     if status_color is not None:
                         item.setBackground(QBrush(status_color))
-                elif col == income_col_index:
-                    if val == "필요":
-                        item.setBackground(QBrush(QColor("#fee2e2")))
-                    elif val == "완료":
-                        item.setBackground(QBrush(QColor("#dcfce7")))
+                elif col == type_col_index:
+                    type_color = TYPE_COLORS.get(ptype)
+                    if type_color is not None:
+                        item.setBackground(QBrush(type_color))
                 elif color is not None:
                     item.setBackground(QBrush(color))
                 self.table.setItem(row, col, item)
@@ -692,16 +690,17 @@ class MainWindow(QMainWindow):
         self.current_prj_no = prj_no
         self.detail_widget.setEnabled(True)
 
-        fund_entry = self.fund_status.get(prj_no)
+        # 청구가능액: 확장의 '청구가능액 조회'로 계산된 값이 있으면 그 값으로 덮어써져 있음
+        # (협약액 - (입금액공급가액 + 입금액부가세)), 없으면 최초 목록 조회 시의 값 그대로.
+        claimable_amt = safe_int(project.get("청구가능액", 0))
 
-        # 청구가능액 자리에 자금현황 API의 "입금잔액"을 표시.
-        # 자금현황 데이터가 없으면 myProjects.json에 있던 기존 값으로 대체 표시.
-        if fund_entry and not fund_entry.get("조회실패"):
-            claimable_display = f"{fund_entry.get('입금잔액', 0):,}원  (자금현황 조회 기준 입금잔액)"
-        else:
-            claimable_display = (
-                f"{safe_int(project.get('청구가능액', 0)):,}원  "
-            )
+        # 예산잔액은 종료임박 과제 팝업에서만 부분적으로 확보되는 참고용 보조 데이터
+        budget_line = ""
+        if "예산잔액" in project:
+            budget_line = f"\n예산잔액(참고, 종료임박 목록 기준): {safe_int(project.get('예산잔액', 0)):,}원"
+
+        ptype = self.project_type_of(prj_no)
+        ptype_display = ptype if ptype != "-" else "미조회"
 
         self.detail_title.setText(project.get("과제명", ""))
         self.detail_info.setText(
@@ -709,20 +708,10 @@ class MainWindow(QMainWindow):
             f"연구책임자: {project.get('연구책임자', '-')}\n"
             f"지원기관: {project.get('지원기관', '-')}\n"
             f"기간: {project.get('시작일', '-')} ~ {project.get('종료일', '-')}\n"
+            f"구분: {ptype_display}\n"
             f"총사업비: {safe_int(project.get('총사업비', 0)):,}원\n"
-            f"청구가능액: {claimable_display}"
+            f"청구가능액: {claimable_amt:,}원{budget_line}"
         )
-
-        income = self.income_flag(prj_no)
-        if income == "필요":
-            self.income_alert.setStyleSheet("font-weight: bold; color: #dc2626;")
-            self.income_alert.setText("⚠ 수입결의 필요 (입금잔액 있음)")
-        elif income == "완료":
-            self.income_alert.setStyleSheet("font-weight: bold; color: #16a34a;")
-            self.income_alert.setText("✓ 수입결의 완료 (입금잔액 없음)")
-        else:
-            self.income_alert.setStyleSheet("font-weight: bold; color: #9ca3af;")
-            self.income_alert.setText("자금현황 미조회 - 확장에서 '자금현황 조회' 실행 필요")
 
         end_date = parse_yyyymmdd(project.get("종료일", ""))
         memo_entry = self.memos.get(prj_no, {})
@@ -768,25 +757,25 @@ def main():
     # Windows에서 작업표시줄 아이콘이 python.exe 기본 아이콘으로 뜨는 문제 방지
     if sys.platform == "win32":
         import ctypes
- 
+
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 "WorkManager.GachonSanhak.1.0"
             )
         except Exception:
             pass
- 
+
     app = QApplication(sys.argv)
- 
+
     if ICON_FILE.exists():
         icon = QIcon(str(ICON_FILE))
         app.setWindowIcon(icon)
- 
+
     window = MainWindow()
- 
+
     if ICON_FILE.exists():
         window.setWindowIcon(icon)
- 
+
     window.show()
     sys.exit(app.exec())
 

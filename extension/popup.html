@@ -53,6 +53,13 @@
       background: #d1d5db;
       cursor: not-allowed;
     }
+    #typeCheckBtn {
+      background: #7c3aed;
+      color: white;
+    }
+    #typeCheckBtn:hover {
+      background: #6d28d9;
+    }
     #status {
       margin-top: 4px;
       font-size: 12px;
@@ -85,6 +92,11 @@
   </div>
 
   <button id="exportBtn" disabled>과제 목록 내보내기 (JSON)</button>
+
+  <button id="typeCheckBtn" style="margin-top: 12px;">과제구분(수익/목적) 조회 (ERP)</button>
+  <button id="typeExportBtn" style="background:#0891b2; color:white;" disabled>과제구분 결과 내보내기 (JSON)</button>
+
+  <button id="claimableCheckBtn" style="margin-top: 12px; background:#ea580c; color:white;">청구가능액 조회 (ERP)</button>
 
   <script src="popup.js"></script>
 </body>
