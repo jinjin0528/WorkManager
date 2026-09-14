@@ -25,12 +25,14 @@ function runAutoExport() {
         return;
       }
 
-      const blob = new Blob([newJson], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
+      // 서비스 워커에는 URL.createObjectURL이 없어서(Blob 방식 사용 불가),
+      // data: URL로 직접 인코딩해서 다운로드해야 함
+      const dataUrl =
+        "data:application/json;charset=utf-8," + encodeURIComponent(newJson);
 
       chrome.downloads.download(
         {
-          url: url,
+          url: dataUrl,
           filename: "WorkManager/myProjects.json",
           conflictAction: "overwrite",
           saveAs: false,
