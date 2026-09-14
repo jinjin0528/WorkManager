@@ -28,6 +28,18 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  // 일부 API(예: 과제정보 상세조회)는 응답을 EUC-KR로 내려줘서,
+  // 브라우저 기본값(UTF-8)으로 읽으면 한글이 깨짐 → 명시적으로 EUC-KR 디코딩
+  async function decodeEucKrResponse(res) {
+    const buffer = await res.arrayBuffer();
+    try {
+      return new TextDecoder("euc-kr").decode(buffer);
+    } catch (err) {
+      console.log("[WorkManager] EUC-KR 디코더 사용 불가, UTF-8로 대체:", err);
+      return new TextDecoder("utf-8").decode(buffer);
+    }
+  }
+
   // 자금현황 API(rcomm_0041_01_r002.jct) 응답은 평면 객체(REC 배열 아님).
   // 고정 필드명(INQ_AGRMT_AMT, INQ_RCV_AMT, INQ_TAX_AMT)을 직접 읽어서 계산.
   // 청구가능액 = 협약액 - (입금액공급가액 + 입금액부가세)
@@ -284,7 +296,14 @@
         body,
         credentials: "include",
       });
-      const raw = await res.json();
+
+      if (!res.ok) {
+        console.log(`[WorkManager] 과제정보 HTTP 오류 (${prjNo}): status=${res.status}`);
+        return null;
+      }
+
+      const text = await decodeEucKrResponse(res);
+      const raw = JSON.parse(text);
       return raw ? normalizeKeys(raw) : null;
     } catch (err) {
       console.log(`[WorkManager] 과제정보 조회 실패 (${prjNo}):`, err);
@@ -305,8 +324,14 @@
       if (data === null) {
         result[prjNo] = { 조회실패: true };
       } else {
+        const type = classifyProjectType(data.ACCT_UNIT_NM);
+        if (type === "-") {
+          console.log(
+            `[WorkManager] 과제구분 판정 불가 (${prjNo}) - ACCT_UNIT_NM="${data.ACCT_UNIT_NM}"`
+          );
+        }
         result[prjNo] = {
-          구분: classifyProjectType(data.ACCT_UNIT_NM),
+          구분: type,
           계정단위명: data.ACCT_UNIT_NM || "",
         };
       }
