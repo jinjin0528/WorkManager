@@ -11,7 +11,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QFileSystemWatcher, QTimer
 from PySide6.QtGui import QColor, QBrush, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,9 +43,16 @@ from PySide6.QtWidgets import (
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-PROJECTS_FILE = DATA_DIR / "myProjects.json"
+
+# 확장이 자동으로 내려받는 myProjects.json은 사용자 홈 폴더의
+# Downloads\WorkManager\ 안에 항상 같은 이름으로 저장됨 (background.js 참고).
+# Path.home()이 "지금 로그인한 사용자"의 홈 폴더를 자동으로 찾아주므로,
+# 팀원 각자 컴퓨터에서 실행해도 경로를 따로 손볼 필요가 없음(심볼릭 링크 불필요).
+DOWNLOADS_WORKMANAGER_DIR = Path.home() / "Downloads" / "WorkManager"
+PROJECTS_FILE = DOWNLOADS_WORKMANAGER_DIR / "myProjects.json"
+
 MEMOS_FILE = DATA_DIR / "memos.json"
-PROJECT_TYPE_FILE = DATA_DIR / "projectType.json"  # 확장의 '과제구분 조회'로 내보낸 데이터
+PROJECT_TYPE_FILE = DATA_DIR / "projectType.json"  # 확장의 '과제구분 조회'로 내보낸 데이터 (구버전 호환용)
 MAIL_TEMPLATES_FILE = DATA_DIR / "mailTemplates.json"  # 메일 안내 양식 목록
 ICON_FILE = BASE_DIR / "app" / "assets" / "icon.png"  # 창/작업표시줄 아이콘
 
@@ -131,9 +138,24 @@ def resolve_status(memo_entry: dict, end_date):
 
 def safe_int(value):
     try:
-        return int(value)
+        if isinstance(value, str):
+            value = value.replace(",", "").strip()
+            if not value or value == "-":
+                return 0
+        return int(float(value))
     except (TypeError, ValueError):
         return 0
+
+
+def claimable_amount(project: dict):
+    """자금현황 원천값이 있으면 협약액 - (입금액공급가액 + 입금액부가세)로 계산."""
+    if "협약액" not in project:
+        return safe_int(project.get("청구가능액", 0))
+
+    agreement = safe_int(project.get("협약액", 0))
+    received_supply = safe_int(project.get("입금액공급가액", 0))
+    received_vat = safe_int(project.get("입금액부가세", 0))
+    return agreement - (received_supply + received_vat)
 
 
 STATUS_COLORS = {
@@ -226,6 +248,35 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self.reload_data()
+        self._setup_file_watcher()
+
+    # ---------------- 파일 자동 감지 ----------------
+    def _setup_file_watcher(self):
+        """다운로드 폴더의 myProjects.json이 확장에 의해 갱신되면 자동으로 새로고침."""
+        DOWNLOADS_WORKMANAGER_DIR.mkdir(parents=True, exist_ok=True)
+
+        self.file_watcher = QFileSystemWatcher(self)
+        self.file_watcher.addPath(str(DOWNLOADS_WORKMANAGER_DIR))
+        if PROJECTS_FILE.exists():
+            self.file_watcher.addPath(str(PROJECTS_FILE))
+
+        self._reload_debounce_timer = QTimer(self)
+        self._reload_debounce_timer.setSingleShot(True)
+        self._reload_debounce_timer.timeout.connect(self._on_projects_file_changed)
+
+        self.file_watcher.directoryChanged.connect(self._schedule_auto_reload)
+        self.file_watcher.fileChanged.connect(self._schedule_auto_reload)
+
+    def _schedule_auto_reload(self, _path):
+        # 파일이 다 쓰이기 전에 읽지 않도록 약간의 지연을 두고 새로고침
+        self._reload_debounce_timer.start(700)
+
+    def _on_projects_file_changed(self):
+        # 파일 감시가 끊기는 경우(파일 삭제 후 재생성 등)를 대비해 다시 등록
+        if PROJECTS_FILE.exists() and str(PROJECTS_FILE) not in self.file_watcher.files():
+            self.file_watcher.addPath(str(PROJECTS_FILE))
+        self.reload_data()
+        self.status_bar.showMessage("myProjects.json 변경 감지 - 자동 새로고침됨", 3000)
 
     # ---------------- UI 구성 ----------------
     def _build_ui(self):
@@ -528,8 +579,14 @@ class MainWindow(QMainWindow):
             )
         return projects
 
-    def project_type_of(self, prj_no):
-        entry = self.project_types.get(prj_no)
+    def project_type_of(self, project):
+        """myProjects.json에 병합된 '구분' 필드를 우선 사용.
+        (예전 방식인 별도 projectType.json 파일도 참고용으로 폴백 지원)"""
+        merged = project.get("구분")
+        if merged:
+            return merged
+
+        entry = self.project_types.get(project.get("과제번호", ""))
         if not entry or entry.get("조회실패"):
             return "-"
         return entry.get("구분", "-")
@@ -544,7 +601,7 @@ class MainWindow(QMainWindow):
             days = calc_dday(end_date)
             memo_entry = self.memos.get(prj_no, {})
             status = resolve_status(memo_entry, end_date)
-            ptype = self.project_type_of(prj_no)
+            ptype = self.project_type_of(p)
 
             values = [
                 p.get("과제명", ""),
@@ -690,16 +747,15 @@ class MainWindow(QMainWindow):
         self.current_prj_no = prj_no
         self.detail_widget.setEnabled(True)
 
-        # 청구가능액: 확장의 '청구가능액 조회'로 계산된 값이 있으면 그 값으로 덮어써져 있음
-        # (협약액 - (입금액공급가액 + 입금액부가세)), 없으면 최초 목록 조회 시의 값 그대로.
-        claimable_amt = safe_int(project.get("청구가능액", 0))
+        # 청구가능액: 자금현황 원천값이 있으면 항상 상세 화면에서 직접 계산한다.
+        claimable_amt = claimable_amount(project)
 
         # 예산잔액은 종료임박 과제 팝업에서만 부분적으로 확보되는 참고용 보조 데이터
         budget_line = ""
         if "예산잔액" in project:
             budget_line = f"\n예산잔액(참고, 종료임박 목록 기준): {safe_int(project.get('예산잔액', 0)):,}원"
 
-        ptype = self.project_type_of(prj_no)
+        ptype = self.project_type_of(project)
         ptype_display = ptype if ptype != "-" else "미조회"
 
         self.detail_title.setText(project.get("과제명", ""))

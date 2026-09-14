@@ -1,153 +1,108 @@
 document.addEventListener("DOMContentLoaded", () => {
   const nameInput = document.getElementById("nameInput");
   const saveBtn = document.getElementById("saveBtn");
+  const refreshBtn = document.getElementById("refreshBtn");
   const status = document.getElementById("status");
   const cacheBox = document.getElementById("cacheBox");
-  const exportBtn = document.getElementById("exportBtn");
 
-  // 저장된 이름 불러오기
   chrome.storage.local.get(["workmanager_userName"], (result) => {
     if (result.workmanager_userName) {
       nameInput.value = result.workmanager_userName;
     }
   });
 
-  // 캐시된 과제 데이터 상태 표시
   function refreshCacheStatus() {
-    chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
-      const cached = result.workmanager_cachedProjects;
-      if (!cached || !cached.projects || cached.projects.length === 0) {
-        cacheBox.innerHTML = '<span class="empty">아직 감지된 과제 데이터가 없습니다.</span>';
-        exportBtn.disabled = true;
-        return;
-      }
+    chrome.storage.local.get(
+      ["workmanager_cachedProjects", "workmanager_lastExportAt"],
+      (result) => {
+        const cached = result.workmanager_cachedProjects;
+        if (!cached || !cached.projects || cached.projects.length === 0) {
+          cacheBox.innerHTML = '<span class="empty">아직 감지된 과제 데이터가 없습니다.</span>';
+          return;
+        }
 
-      const time = new Date(cached.updatedAt).toLocaleString("ko-KR");
-      cacheBox.innerHTML = `
-        <b>${cached.userName}</b> 담당 과제 <b>${cached.projects.length}건</b> 감지됨<br>
-        (마지막 갱신: ${time})
-      `;
-      exportBtn.disabled = false;
-    });
+        const withType = cached.projects.filter((p) => p.구분).length;
+        const withClaimable = cached.projects.filter((p) => "청구가능액" in p).length;
+        const detectedTime = new Date(cached.updatedAt).toLocaleString("ko-KR");
+        const exportLine = result.workmanager_lastExportAt
+          ? `파일 저장됨: ${new Date(result.workmanager_lastExportAt).toLocaleString("ko-KR")}`
+          : "파일 저장 대기 중";
+
+        cacheBox.innerHTML = `
+          <b>${cached.userName}</b> 담당 과제 <b>${cached.projects.length}건</b> 감지됨<br>
+          구분 확인됨: ${withType}건 / 청구가능액 반영: ${withClaimable}건<br>
+          (감지 시각: ${detectedTime})<br>
+          ${exportLine}
+        `;
+      }
+    );
   }
 
   refreshCacheStatus();
+  setInterval(refreshCacheStatus, 2000);
+
+  function clearCacheAndReload(onDone) {
+    chrome.storage.local.remove(
+      [
+        "workmanager_cachedProjects",
+        "workmanager_budgetMap",
+        "workmanager_claimableMap",
+        "workmanager_projectType",
+        "workmanager_projectTypeMap",
+        "workmanager_lastExportedJson",
+        "workmanager_lastExportAt",
+      ],
+      () => {
+        chrome.tabs.query(
+          { url: ["https://portal.gachon.ac.kr/*", "https://gusanhak.gachon.ac.kr/*"] },
+          (tabs) => {
+            if (tabs.length === 0) {
+              status.style.color = "#dc2626";
+              status.textContent = "열려있는 ERP/포털 탭이 없습니다. 먼저 ERP에 접속해주세요.";
+            } else {
+              tabs.forEach((tab) => chrome.tabs.reload(tab.id));
+            }
+            refreshCacheStatus();
+            if (onDone) onDone();
+          }
+        );
+      }
+    );
+  }
 
   saveBtn.addEventListener("click", () => {
     const name = nameInput.value.trim();
-
     if (!name) {
       status.style.color = "#dc2626";
       status.textContent = "이름을 입력해주세요.";
       return;
     }
 
-    chrome.storage.local.set({ workmanager_userName: name }, () => {
-      status.style.color = "#16a34a";
-      status.textContent = `"${name}" 저장 완료`;
-    });
-  });
+    chrome.storage.local.get(["workmanager_userName"], (prevResult) => {
+      const prevName = prevResult.workmanager_userName;
+      const nameChanged = prevName !== name;
 
-  exportBtn.addEventListener("click", () => {
-    chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
-      const cached = result.workmanager_cachedProjects;
-      if (!cached || !cached.projects || cached.projects.length === 0) return;
-
-      const blob = new Blob([JSON.stringify(cached.projects, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-
-      chrome.downloads.download(
-        {
-          url: url,
-          filename: "myProjects.json",
-          conflictAction: "overwrite",
-          saveAs: false,
-        },
-        () => {
+      chrome.storage.local.set({ workmanager_userName: name }, () => {
+        if (!nameChanged) {
           status.style.color = "#16a34a";
-          status.textContent = `myProjects.json 다운로드 완료 (${cached.projects.length}건)`;
-        }
-      );
-    });
-  });
-
-  // ---------------- 과제구분(수익/목적) 조회 ----------------
-  const typeCheckBtn = document.getElementById("typeCheckBtn");
-  const typeExportBtn = document.getElementById("typeExportBtn");
-
-  chrome.storage.local.get(["workmanager_projectType"], (result) => {
-    typeExportBtn.disabled = !(result.workmanager_projectType && result.workmanager_projectType.data);
-  });
-
-  typeCheckBtn.addEventListener("click", () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]) return;
-
-      status.style.color = "#7c3aed";
-      status.textContent = "과제구분 조회 중... (완료까지 시간이 걸릴 수 있어요)";
-
-      chrome.tabs.sendMessage(tabs[0].id, { type: "START_PROJECT_TYPE_CHECK" }, () => {
-        if (chrome.runtime.lastError) {
-          status.style.color = "#dc2626";
-          status.textContent = "ERP 페이지에서 실행해주세요.";
+          status.textContent = `"${name}" 저장 완료`;
           return;
         }
-        status.textContent =
-          "조회를 시작했습니다. 잠시 후 팝업을 다시 열어 내보내기 버튼을 눌러주세요.";
-        typeExportBtn.disabled = false;
+
+        // 이름이 바뀌면 예전 캐시(다른 사람 기준으로 필터링된 데이터)는
+        // 더 이상 유효하지 않으므로 전부 비우고 ERP를 새로고침해서 즉시 재감지
+        status.style.color = "#16a34a";
+        status.textContent = `"${name}" 저장 완료 - ERP 페이지 새로고침 중`;
+        clearCacheAndReload();
       });
     });
   });
 
-  typeExportBtn.addEventListener("click", () => {
-    chrome.storage.local.get(["workmanager_projectType"], (result) => {
-      const cached = result.workmanager_projectType;
-      if (!cached || !cached.data) return;
-
-      const blob = new Blob([JSON.stringify(cached.data, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-
-      chrome.downloads.download(
-        {
-          url: url,
-          filename: "projectType.json",
-          conflictAction: "overwrite",
-          saveAs: false,
-        },
-        () => {
-          status.style.color = "#16a34a";
-          status.textContent = "projectType.json 다운로드 완료";
-        }
-      );
-    });
-  });
-
-  // ---------------- 청구가능액 조회 ----------------
-  // 결과는 과제 목록에 바로 병합되므로 별도 내보내기 버튼 없이
-  // 기존 "과제 목록 내보내기" 버튼으로 함께 나감
-  const claimableCheckBtn = document.getElementById("claimableCheckBtn");
-
-  claimableCheckBtn.addEventListener("click", () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]) return;
-
-      status.style.color = "#ea580c";
-      status.textContent = "청구가능액 조회 중... (완료까지 시간이 걸릴 수 있어요)";
-
-      chrome.tabs.sendMessage(tabs[0].id, { type: "START_CLAIMABLE_CHECK" }, () => {
-        if (chrome.runtime.lastError) {
-          status.style.color = "#dc2626";
-          status.textContent = "ERP 페이지에서 실행해주세요.";
-          return;
-        }
-        status.textContent =
-          "조회를 시작했습니다. 완료되면 '과제 목록 내보내기'에 자동 반영됩니다.";
-        refreshCacheStatus();
-      });
+  refreshBtn.addEventListener("click", () => {
+    status.style.color = "#2563eb";
+    status.textContent = "캐시를 비우고 ERP 페이지를 새로고침합니다.";
+    clearCacheAndReload(() => {
+      status.textContent = "새로고침 완료. 잠시 후 자동으로 다시 감지됩니다.";
     });
   });
 });

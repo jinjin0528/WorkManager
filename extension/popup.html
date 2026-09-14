@@ -8,14 +8,8 @@
       padding: 14px;
       font-family: -apple-system, "Malgun Gothic", sans-serif;
     }
-    h3 {
-      margin: 0 0 10px 0;
-      font-size: 14px;
-    }
-    label {
-      font-size: 12px;
-      color: #555;
-    }
+    h3 { margin: 0 0 10px 0; font-size: 14px; }
+    label { font-size: 12px; color: #555; }
     input {
       width: 100%;
       box-sizing: border-box;
@@ -34,38 +28,11 @@
       cursor: pointer;
       font-size: 13px;
       margin-bottom: 6px;
-    }
-    #saveBtn {
       background: #2563eb;
       color: white;
     }
-    #saveBtn:hover {
-      background: #1d4ed8;
-    }
-    #exportBtn {
-      background: #16a34a;
-      color: white;
-    }
-    #exportBtn:hover {
-      background: #15803d;
-    }
-    #exportBtn:disabled {
-      background: #d1d5db;
-      cursor: not-allowed;
-    }
-    #typeCheckBtn {
-      background: #7c3aed;
-      color: white;
-    }
-    #typeCheckBtn:hover {
-      background: #6d28d9;
-    }
-    #status {
-      margin-top: 4px;
-      font-size: 12px;
-      color: #16a34a;
-      min-height: 14px;
-    }
+    button:hover { background: #1d4ed8; }
+    #status { margin-top: 4px; font-size: 12px; color: #16a34a; min-height: 14px; }
     .cache-box {
       margin-top: 12px;
       padding: 10px;
@@ -73,10 +40,14 @@
       border-radius: 6px;
       font-size: 12px;
       color: #374151;
-      line-height: 1.5;
+      line-height: 1.6;
     }
-    .cache-box .empty {
+    .cache-box .empty { color: #9ca3af; }
+    .hint {
+      margin-top: 10px;
+      font-size: 11px;
       color: #9ca3af;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -85,18 +56,17 @@
   <label for="nameInput">담당자 이름</label>
   <input type="text" id="nameInput" placeholder="이름을 입력해주세요." />
   <button id="saveBtn">이름 저장</button>
+  <button id="refreshBtn" style="background:#6b7280;">지금 새로고침 (다시 감지)</button>
   <p id="status"></p>
 
   <div class="cache-box" id="cacheBox">
     <span class="empty">아직 감지된 과제 데이터가 없습니다.</span>
   </div>
 
-  <button id="exportBtn" disabled>과제 목록 내보내기 (JSON)</button>
-
-  <button id="typeCheckBtn" style="margin-top: 12px;">과제구분(수익/목적) 조회 (ERP)</button>
-  <button id="typeExportBtn" style="background:#0891b2; color:white;" disabled>과제구분 결과 내보내기 (JSON)</button>
-
-  <button id="claimableCheckBtn" style="margin-top: 12px; background:#ea580c; color:white;">청구가능액 조회 (ERP)</button>
+  <p class="hint">
+    ※ 과제 목록 감지, 구분/청구가능액 계산, myProjects.json 저장까지
+    전부 자동으로 처리됩니다. 이 팝업은 이름 설정과 현재 상태 확인용입니다.
+  </p>
 
   <script src="popup.js"></script>
 </body>

@@ -6,17 +6,46 @@
   console.log("[WorkManager] inject.js 로드됨 (MAIN world)");
 
   // 이 ERP는 일부 필드 키에 한글 설명이 괄호로 붙어서 내려옴
-  // 예: "INQ_RCV_BAL_AMT(입금잔액)" - 심지어 같은 배열 안에서도
-  // 첫 번째 항목만 괄호가 붙고 이후엔 안 붙는 경우가 있어서, 항상 괄호 앞부분만
-  // 잘라서 키를 통일시켜야 필드를 안정적으로 읽을 수 있음
+  // 예: "INQ_RCV_BAL_AMT(입금잔액)" - 심지어 같은 배열/과제 안에서도
+  // 붙었다 안 붙었다 들쭉날쭉해서, 라벨 텍스트로 찾는 방식은 신뢰할 수 없음.
+  // 항상 괄호 앞부분(고정 필드명)만 잘라서 키를 통일시켜 읽어야 함.
   function normalizeKeys(obj) {
     if (!obj || typeof obj !== "object") return obj;
     const result = {};
     for (const key in obj) {
-      const baseKey = key.split("(")[0];
+      const baseKey = key.split("(")[0].trim();
+      result[key] = obj[key];
       result[baseKey] = obj[key];
     }
     return result;
+  }
+
+  function parseAmount(value) {
+    if (value === null || value === undefined || value === "") return 0;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+    const parsed = Number(String(value).replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  // 자금현황 API(rcomm_0041_01_r002.jct) 응답은 평면 객체(REC 배열 아님).
+  // 고정 필드명(INQ_AGRMT_AMT, INQ_RCV_AMT, INQ_TAX_AMT)을 직접 읽어서 계산.
+  // 청구가능액 = 협약액 - (입금액공급가액 + 입금액부가세)
+  function calculateClaimableAmount(rawData) {
+    const data = normalizeKeys(rawData);
+
+    if (!("INQ_AGRMT_AMT" in data)) return null;
+
+    const agreement = parseAmount(data.INQ_AGRMT_AMT);
+    const receivedSupply = parseAmount(data.INQ_RCV_AMT);
+    const receivedVat = parseAmount(data.INQ_TAX_AMT);
+
+    return {
+      협약액: agreement,
+      입금액공급가액: receivedSupply,
+      입금액부가세: receivedVat,
+      청구가능액: agreement - (receivedSupply + receivedVat),
+    };
   }
 
   // 타겟 API 파일명 - 과제 목록을 내려주는 요청
@@ -204,7 +233,7 @@
     );
   }
 
-  // content.js로부터 조회 시작 요청을 받으면 실행
+  // content.js로부터 오는 메시지 + 과제 목록 자체 감지 후 자동 트리거
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     if (!event.data || event.data.source !== "workmanager-content") return;
@@ -330,10 +359,23 @@
         body,
         credentials: "include",
       });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.log(
+          `[WorkManager] 청구가능액 HTTP 오류 (${prjNo}): status=${res.status} body=${text.slice(0, 200)}`
+        );
+        return null;
+      }
+
       const raw = await res.json();
-      return raw ? normalizeKeys(raw) : null;
+      const result = calculateClaimableAmount(raw);
+      if (!result) {
+        console.log(`[WorkManager] 청구가능액 필드 없음 (${prjNo}):`, raw);
+      }
+      return result;
     } catch (err) {
-      console.log(`[WorkManager] 청구가능액 조회 실패 (${prjNo}):`, err);
+      console.log(`[WorkManager] 청구가능액 조회 예외 (${prjNo}):`, err);
       return null;
     }
   }
@@ -351,15 +393,12 @@
       if (data === null) {
         result[prjNo] = null; // 조회 실패
       } else {
-        const agrmt = Number(data.INQ_AGRMT_AMT || 0);
-        const rcv = Number(data.INQ_RCV_AMT || 0);
-        const tax = Number(data.INQ_TAX_AMT || 0);
-        result[prjNo] = agrmt - (rcv + tax);
+        result[prjNo] = data;
       }
 
       console.log(
         `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → 청구가능액 ${
-          result[prjNo] === null ? "조회실패" : result[prjNo].toLocaleString()
+          result[prjNo] === null ? "조회실패" : result[prjNo].청구가능액.toLocaleString()
         }`
       );
 
@@ -375,5 +414,12 @@
       },
       "*"
     );
+  }
+
+  if (window.__WORKMANAGER_TEST__) {
+    window.__workmanagerTest = {
+      normalizeKeys,
+      calculateClaimableAmount,
+    };
   }
 })();
