@@ -283,68 +283,144 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(24, 22, 24, 18)
+        root_layout.setSpacing(16)
 
-        # 상단 툴바 영역 (검색 + 정렬 + 새로고침 + 메일 안내)
-        top_bar = QHBoxLayout()
+        # 상단 헤더
+        header = QHBoxLayout()
+        header.setSpacing(12)
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+
+        title = QLabel("WorkManager")
+        title.setObjectName("appTitle")
+        subtitle = QLabel("산학협력단 담당 과제 관리")
+        subtitle.setObjectName("appSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+
+        header.addLayout(title_box)
+        header.addStretch()
+
+        refresh_btn = QPushButton("↻  새로고침")
+        refresh_btn.setObjectName("secondaryButton")
+        refresh_btn.clicked.connect(self.reload_data)
+
+        mail_btn = QPushButton("✉  메일 안내")
+        mail_btn.setObjectName("primaryButton")
+        mail_btn.clicked.connect(self.open_mail_templates)
+
+        header.addWidget(refresh_btn)
+        header.addWidget(mail_btn)
+        root_layout.addLayout(header)
+
+        # 검색 / 정렬 바
+        control_card = QFrame()
+        control_card.setObjectName("controlCard")
+        control_layout = QHBoxLayout(control_card)
+        control_layout.setContentsMargins(14, 10, 14, 10)
+        control_layout.setSpacing(10)
+
+        search_icon = QLabel("⌕")
+        search_icon.setObjectName("searchIcon")
+        control_layout.addWidget(search_icon)
+
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("과제명 / 연구책임자 / 담당자 검색")
+        self.search_input.setPlaceholderText("과제명, 연구책임자, 담당자로 검색")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_filter)
+        control_layout.addWidget(self.search_input, 1)
+
+        sort_label = QLabel("정렬")
+        sort_label.setObjectName("mutedLabel")
+        control_layout.addWidget(sort_label)
 
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(SORT_OPTIONS)
         self.sort_combo.currentIndexChanged.connect(self.apply_filter)
+        self.sort_combo.setMinimumWidth(150)
+        control_layout.addWidget(self.sort_combo)
 
-        refresh_btn = QPushButton("새로고침")
-        refresh_btn.clicked.connect(self.reload_data)
+        root_layout.addWidget(control_card)
 
-        mail_btn = QPushButton("메일 안내")
-        mail_btn.clicked.connect(self.open_mail_templates)
-
-        top_bar.addWidget(QLabel("검색:"))
-        top_bar.addWidget(self.search_input)
-        top_bar.addWidget(QLabel("정렬:"))
-        top_bar.addWidget(self.sort_combo)
-        top_bar.addStretch()
-        top_bar.addWidget(refresh_btn)
-        top_bar.addWidget(mail_btn)
-        root_layout.addLayout(top_bar)
-
-        # 본문: 좌측 표 + 우측 상세 패널
+        # 본문: 좌측 목록 + 우측 상세
         splitter = QSplitter(Qt.Horizontal)
-        root_layout.addWidget(splitter)
+        splitter.setObjectName("mainSplitter")
+        splitter.setHandleWidth(1)
+        root_layout.addWidget(splitter, 1)
 
-        # --- 좌측: 과제 목록 표 ---
+        # --- 좌측: 과제 목록 ---
+        list_card = QFrame()
+        list_card.setObjectName("panelCard")
+        list_layout = QVBoxLayout(list_card)
+        list_layout.setContentsMargins(16, 14, 16, 10)
+        list_layout.setSpacing(10)
+
+        list_header = QHBoxLayout()
+        list_title = QLabel("내 과제")
+        list_title.setObjectName("sectionTitle")
+        list_header.addWidget(list_title)
+        list_header.addStretch()
+
+        self.project_count_label = QLabel("0건")
+        self.project_count_label.setObjectName("countBadge")
+        list_header.addWidget(self.project_count_label)
+        list_layout.addLayout(list_header)
+
         self.table = QTableWidget(0, len(TABLE_HEADERS))
+        self.table.setObjectName("projectTable")
         self.table.setHorizontalHeaderLabels(TABLE_HEADERS)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setAlternatingRowColors(False)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.horizontalHeader().setHighlightSections(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setMinimumSectionSize(70)
         self.table.itemSelectionChanged.connect(self.on_row_selected)
-        splitter.addWidget(self.table)
+        list_layout.addWidget(self.table)
 
-        # --- 우측: 상세 패널 (스크롤 가능) ---
+        splitter.addWidget(list_card)
+
+        # --- 우측: 상세 패널 ---
         detail_scroll = QScrollArea()
         detail_scroll.setWidgetResizable(True)
         detail_scroll.setFrameShape(QFrame.NoFrame)
+        detail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         detail_widget = QWidget()
         detail_layout = QVBoxLayout(detail_widget)
+        detail_layout.setContentsMargins(20, 18, 20, 18)
+        detail_layout.setSpacing(12)
 
+        detail_heading = QHBoxLayout()
+        detail_heading.setSpacing(10)
         self.detail_title = QLabel("과제를 선택하세요")
-        self.detail_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.detail_title.setObjectName("detailTitle")
         self.detail_title.setWordWrap(True)
-        detail_layout.addWidget(self.detail_title)
+        detail_heading.addWidget(self.detail_title, 1)
+
+        self.detail_status_badge = QLabel("선택 대기")
+        self.detail_status_badge.setObjectName("neutralBadge")
+        detail_heading.addWidget(self.detail_status_badge, 0, Qt.AlignTop)
+        detail_layout.addLayout(detail_heading)
 
         self.detail_info = QLabel("")
+        self.detail_info.setObjectName("detailInfo")
         self.detail_info.setWordWrap(True)
-        self.detail_info.setStyleSheet("color: #555;")
         detail_layout.addWidget(self.detail_info)
 
         detail_layout.addWidget(self._separator())
 
-        # 연락 담당자 (수기 입력)
-        detail_layout.addWidget(QLabel("연락 담당자"))
+        # 연락 담당자
+        label = QLabel("연락 담당자")
+        label.setObjectName("fieldLabel")
+        detail_layout.addWidget(label)
+
         self.contact_edit = QLineEdit()
         self.contact_edit.setPlaceholderText("연락 담당자 정보를 입력하세요")
         detail_layout.addWidget(self.contact_edit)
@@ -352,7 +428,10 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self._separator())
 
         # 진행상태
-        detail_layout.addWidget(QLabel("진행상태"))
+        label = QLabel("진행상태")
+        label.setObjectName("fieldLabel")
+        detail_layout.addWidget(label)
+
         self.status_combo = QComboBox()
         self.status_combo.addItems(STATUS_OPTIONS)
         detail_layout.addWidget(self.status_combo)
@@ -360,8 +439,17 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self._separator())
 
         # 체크리스트
-        detail_layout.addWidget(QLabel("체크리스트"))
+        checklist_header = QHBoxLayout()
+        label = QLabel("체크리스트")
+        label.setObjectName("fieldLabel")
+        checklist_header.addWidget(label)
+        checklist_header.addStretch()
+        checklist_header.addWidget(QLabel("진행 항목을 체크하세요"))
+        checklist_header.itemAt(2).widget().setObjectName("helperLabel")
+        detail_layout.addLayout(checklist_header)
+
         self.checklist_container = QVBoxLayout()
+        self.checklist_container.setSpacing(6)
         detail_layout.addLayout(self.checklist_container)
 
         add_preset_row = QHBoxLayout()
@@ -374,44 +462,56 @@ class MainWindow(QMainWindow):
 
         add_row = QHBoxLayout()
         self.new_checklist_input = QLineEdit()
-        self.new_checklist_input.setPlaceholderText("직접 입력")
-        add_item_btn = QPushButton("+")
-        add_item_btn.setFixedWidth(28)
+        self.new_checklist_input.setPlaceholderText("새 체크리스트 항목 직접 입력")
+        add_item_btn = QPushButton("＋ 추가")
+        add_item_btn.setObjectName("smallPrimaryButton")
         add_item_btn.clicked.connect(self.add_checklist_item)
-        add_row.addWidget(self.new_checklist_input)
+        add_row.addWidget(self.new_checklist_input, 1)
         add_row.addWidget(add_item_btn)
         detail_layout.addLayout(add_row)
 
         detail_layout.addWidget(self._separator())
 
         # 규정 문서
-        detail_layout.addWidget(QLabel("규정 문서"))
+        label = QLabel("규정 문서")
+        label.setObjectName("fieldLabel")
+        detail_layout.addWidget(label)
+
         self.doc_label = QLabel("첨부된 문서 없음")
+        self.doc_label.setObjectName("fileLabel")
         self.doc_label.setWordWrap(True)
-        self.doc_label.setStyleSheet("color: #555;")
         detail_layout.addWidget(self.doc_label)
 
         doc_btn_row = QHBoxLayout()
         pick_doc_btn = QPushButton("파일 선택")
-        pick_doc_btn.clicked.connect(self.pick_regulation_doc)
         open_doc_btn = QPushButton("열기")
-        open_doc_btn.clicked.connect(self.open_regulation_doc)
         remove_doc_btn = QPushButton("제거")
+        pick_doc_btn.setObjectName("secondaryButton")
+        open_doc_btn.setObjectName("secondaryButton")
+        remove_doc_btn.setObjectName("ghostButton")
+        pick_doc_btn.clicked.connect(self.pick_regulation_doc)
+        open_doc_btn.clicked.connect(self.open_regulation_doc)
         remove_doc_btn.clicked.connect(self.remove_regulation_doc)
         doc_btn_row.addWidget(pick_doc_btn)
         doc_btn_row.addWidget(open_doc_btn)
         doc_btn_row.addWidget(remove_doc_btn)
+        doc_btn_row.addStretch()
         detail_layout.addLayout(doc_btn_row)
 
         detail_layout.addWidget(self._separator())
 
         # 메모
-        detail_layout.addWidget(QLabel("메모"))
+        label = QLabel("메모")
+        label.setObjectName("fieldLabel")
+        detail_layout.addWidget(label)
+
         self.memo_edit = QTextEdit()
-        self.memo_edit.setFixedHeight(120)
+        self.memo_edit.setPlaceholderText("과제 관련 메모를 입력하세요.")
+        self.memo_edit.setMinimumHeight(130)
         detail_layout.addWidget(self.memo_edit)
 
         save_btn = QPushButton("저장")
+        save_btn.setObjectName("saveButton")
         save_btn.clicked.connect(self.save_current_memo)
         detail_layout.addWidget(save_btn)
 
@@ -428,12 +528,236 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
+        # 전체 Modern UI 스타일
+        self.setStyleSheet("""
+            QMainWindow {
+                background: #f6f7fb;
+            }
+            QWidget {
+                font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+                font-size: 13px;
+                color: #1f2937;
+            }
+            QToolTip {
+                background: #111827;
+                color: white;
+                border: none;
+                padding: 6px 8px;
+            }
+
+            #appTitle {
+                font-size: 25px;
+                font-weight: 800;
+                color: #111827;
+            }
+            #appSubtitle {
+                color: #8a94a6;
+                font-size: 12px;
+                font-weight: 500;
+            }
+
+            #controlCard, #panelCard {
+                background: #ffffff;
+                border: 1px solid #e7eaf0;
+                border-radius: 14px;
+            }
+            #controlCard {
+                min-height: 46px;
+            }
+            #searchIcon {
+                font-size: 22px;
+                color: #98a2b3;
+                padding-left: 4px;
+            }
+            QLineEdit, QTextEdit, QComboBox {
+                background: #f8f9fc;
+                border: 1px solid #e5e7eb;
+                border-radius: 9px;
+                padding: 9px 11px;
+                selection-background-color: #dbeafe;
+                selection-color: #1e3a8a;
+            }
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+                background: #ffffff;
+                border: 1px solid #93c5fd;
+            }
+            QComboBox {
+                padding-right: 28px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 25px;
+            }
+            QComboBox QAbstractItemView {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                padding: 5px;
+                selection-background-color: #eef2ff;
+                selection-color: #1e40af;
+            }
+
+            QPushButton {
+                border: none;
+                border-radius: 9px;
+                padding: 9px 14px;
+                font-weight: 600;
+            }
+            #primaryButton, #smallPrimaryButton, #saveButton {
+                background: #2563eb;
+                color: white;
+            }
+            #primaryButton:hover, #smallPrimaryButton:hover, #saveButton:hover {
+                background: #1d4ed8;
+            }
+            #secondaryButton {
+                background: #eef2f7;
+                color: #374151;
+                border: 1px solid #e1e6ee;
+            }
+            #secondaryButton:hover {
+                background: #e4e9f1;
+            }
+            #ghostButton {
+                background: transparent;
+                color: #6b7280;
+                border: 1px solid #e5e7eb;
+            }
+            #ghostButton:hover {
+                background: #f8fafc;
+            }
+            #saveButton {
+                min-height: 42px;
+                font-size: 14px;
+                margin-top: 4px;
+            }
+            #smallPrimaryButton {
+                padding: 8px 12px;
+            }
+
+            #sectionTitle {
+                font-size: 16px;
+                font-weight: 750;
+                color: #111827;
+            }
+            #countBadge, #neutralBadge {
+                background: #eef2ff;
+                color: #4f46e5;
+                border-radius: 12px;
+                padding: 4px 9px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            #mutedLabel, #helperLabel {
+                color: #98a2b3;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            #fieldLabel {
+                color: #344054;
+                font-size: 12px;
+                font-weight: 750;
+                margin-top: 2px;
+            }
+            #fileLabel {
+                background: #f8fafc;
+                border: 1px dashed #d6dce6;
+                border-radius: 9px;
+                padding: 10px;
+                color: #667085;
+            }
+            #detailTitle {
+                font-size: 20px;
+                font-weight: 800;
+                color: #111827;
+            }
+            #detailInfo {
+                color: #667085;
+                line-height: 1.55;
+                background: #f8fafc;
+                border-radius: 10px;
+                padding: 11px 13px;
+            }
+
+            #projectTable {
+                background: #ffffff;
+                border: none;
+                outline: none;
+            }
+            #projectTable::item {
+                border-bottom: 1px solid #f0f2f5;
+                padding: 10px 8px;
+            }
+            #projectTable::item:selected {
+                background: #eef4ff;
+                color: #1d4ed8;
+                border-left: 3px solid #3b82f6;
+            }
+            #projectTable QHeaderView::section {
+                background: #fafbfc;
+                color: #8a94a6;
+                border: none;
+                border-bottom: 1px solid #eaecf0;
+                padding: 10px 8px;
+                font-size: 11px;
+                font-weight: 750;
+            }
+
+            QCheckBox {
+                spacing: 9px;
+                color: #344054;
+                padding: 5px 4px;
+            }
+            QCheckBox::indicator {
+                width: 17px;
+                height: 17px;
+                border-radius: 5px;
+                border: 1px solid #cbd5e1;
+                background: white;
+            }
+            QCheckBox::indicator:checked {
+                background: #2563eb;
+                border: 1px solid #2563eb;
+            }
+
+            QScrollBar:vertical {
+                width: 8px;
+                background: transparent;
+                margin: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: #d5dae3;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #b9c1ce;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+                border: none;
+            }
+
+            QStatusBar {
+                background: transparent;
+                color: #98a2b3;
+                border: none;
+                font-size: 11px;
+                padding: 2px 8px;
+            }
+            QSplitter::handle {
+                background: transparent;
+            }
+        """)
+
     @staticmethod
     def _separator():
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #e5e7eb;")
+        line.setFixedHeight(1)
+        line.setStyleSheet("background: #edf0f4; border: none;")
         return line
+
 
     # ---------------- 메일 안내 ----------------
     def open_mail_templates(self):
@@ -544,6 +868,8 @@ class MainWindow(QMainWindow):
         ]
         sorted_projects = self.sort_projects(filtered)
         self.populate_table(sorted_projects)
+        if hasattr(self, "project_count_label"):
+            self.project_count_label.setText(f"{len(sorted_projects):,}건")
 
     def sort_projects(self, projects):
         mode = self.sort_combo.currentText()
@@ -777,6 +1103,27 @@ class MainWindow(QMainWindow):
         status = resolve_status(memo_entry, end_date)
         idx = self.status_combo.findText(status)
         self.status_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        if hasattr(self, "detail_status_badge"):
+            self.detail_status_badge.setText(status)
+            status_bg = {
+                "진행중": "#e8f1ff",
+                "종료": "#f0f1f3",
+                "완료": "#eaf8ef",
+                "보류": "#fff7df",
+                "검토필요": "#fff0f0",
+            }.get(status, "#eef2ff")
+            status_fg = {
+                "진행중": "#2563eb",
+                "종료": "#667085",
+                "완료": "#15803d",
+                "보류": "#b45309",
+                "검토필요": "#dc2626",
+            }.get(status, "#4f46e5")
+            self.detail_status_badge.setStyleSheet(
+                f"background: {status_bg}; color: {status_fg}; "
+                "border-radius: 12px; padding: 4px 9px; "
+                "font-size: 11px; font-weight: 700;"
+            )
 
         self.rebuild_checklist_ui(self.get_current_checklist())
 
