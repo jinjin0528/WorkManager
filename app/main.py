@@ -295,7 +295,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("WorkManager")
         title.setObjectName("appTitle")
-        subtitle = QLabel("산학협력단 담당 과제 관리")
+        subtitle = QLabel("담당 연구 과제 관리")
         subtitle.setObjectName("appSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -327,7 +327,7 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(search_icon)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("과제명, 연구책임자, 담당자로 검색")
+        self.search_input.setPlaceholderText("과제명, 연구책임자로 검색")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_filter)
         control_layout.addWidget(self.search_input, 1)
