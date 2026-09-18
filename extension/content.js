@@ -55,11 +55,14 @@ function mergeAndSaveField(fieldName, valueMap, storageKey, label, onDone) {
   });
 }
 
-function mergeAndSaveClaimable(claimableMap) {
+function mergeAndSaveClaimable(claimableMap, onDone) {
   chrome.storage.local.set({ workmanager_claimableMap: claimableMap }, () => {
     chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
       const cached = result.workmanager_cachedProjects;
-      if (!cached || !cached.projects || cached.projects.length === 0) return;
+      if (!cached || !cached.projects || cached.projects.length === 0) {
+        if (onDone) onDone([]);
+        return;
+      }
 
       const merged = mergeClaimableIntoProjects(cached.projects, claimableMap);
       chrome.storage.local.set(
@@ -70,7 +73,38 @@ function mergeAndSaveClaimable(claimableMap) {
             updatedAt: new Date().toISOString(),
           },
         },
-        () => console.log("[WorkManager] 청구가능액 계산값을 과제 목록에 병합 완료")
+        () => {
+          console.log("[WorkManager] 청구가능액 계산값을 과제 목록에 병합 완료");
+          if (onDone) onDone(merged);
+        }
+      );
+    });
+  });
+}
+
+function mergeIndirectCostIntoProjects(projects, indirectMap) {
+  return projects.map((p) => {
+    const value = indirectMap[p.과제번호];
+    if (!value || value.조회실패) return p;
+    return {
+      ...p,
+      간접비총액: value.간접비총액,
+      간접비징수액: value.간접비징수액,
+      간접비진행률: value.간접비진행률,
+    };
+  });
+}
+
+function mergeAndSaveIndirectCost(indirectMap) {
+  chrome.storage.local.set({ workmanager_indirectMap: indirectMap }, () => {
+    chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
+      const cached = result.workmanager_cachedProjects;
+      if (!cached || !cached.projects || cached.projects.length === 0) return;
+
+      const merged = mergeIndirectCostIntoProjects(cached.projects, indirectMap);
+      chrome.storage.local.set(
+        { workmanager_cachedProjects: { ...cached, projects: merged, updatedAt: new Date().toISOString() } },
+        () => console.log("[WorkManager] 간접비 진행률을 과제 목록에 병합 완료")
       );
     });
   });
@@ -261,6 +295,24 @@ window.addEventListener("message", (event) => {
       (v) => v !== null && (typeof v !== "object" || v.청구가능액 !== undefined)
     ).length;
     console.log(`[WorkManager] 청구가능액 조회 결과: 전체 ${total}건 중 ${success}건 성공`);
-    mergeAndSaveClaimable(claimableMap);
+
+    // 청구가능액 병합이 끝난 뒤에야 간접비 조회를 이어서 시작 (동시 실행 시
+    // 서버 세션 충돌 위험이 있어서 계속 순차적으로 체이닝함)
+    mergeAndSaveClaimable(claimableMap, (merged) => {
+      if (!merged || merged.length === 0) return;
+      console.log("[WorkManager] 간접비 진행률 자동 조회 시작...");
+      window.postMessage(
+        { source: "workmanager-content", type: "FETCH_INDIRECT_COST", payload: merged },
+        "*"
+      );
+    });
+  }
+
+  if (event.data.type === "INDIRECT_COST_RESULT") {
+    const indirectMap = event.data.payload;
+    const total = Object.keys(indirectMap).length;
+    const success = Object.values(indirectMap).filter((v) => !v.조회실패).length;
+    console.log(`[WorkManager] 간접비 진행률 조회 결과: 전체 ${total}건 중 ${success}건 성공`);
+    mergeAndSaveIndirectCost(indirectMap);
   }
 });

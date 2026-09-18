@@ -261,6 +261,10 @@
     if (event.data.type === "FETCH_CLAIMABLE_AMOUNT") {
       collectClaimableAmount(event.data.payload || []);
     }
+
+    if (event.data.type === "FETCH_INDIRECT_COST") {
+      collectIndirectCostStatus(event.data.payload || []);
+    }
   });
 
   // -------------------------------------------------------------------
@@ -435,6 +439,127 @@
       {
         source: "workmanager-inject",
         type: "CLAIMABLE_RESULT",
+        payload: result,
+      },
+      "*"
+    );
+  }
+
+  // -------------------------------------------------------------------
+  // 간접비 징수 진행률 능동 조회
+  // 1) rtask_0008_t02_01_r003.jct → 예산 항목별 총액 중 "간접비"/"일반관리비"의
+  //    BGT_AMT를 더해서 "간접비 총액" 구함
+  // 2) rtask_0008_t04_01_r001.jct → 결의서 내역 중 PROC_TYP_NM="징수결의서" &&
+  //    EXP_APPR_STS_NM="결재완료" 인 건의 REQ_AMT를 더해서 "징수된 금액" 구함
+  // -------------------------------------------------------------------
+  const INDIRECT_BUDGET_URL = "/rtask_0008_t02_01_r003.jct";
+  const INDIRECT_COLLECTION_URL = "/rtask_0008_t04_01_r001.jct";
+
+  function isIndirectExpenseName(name) {
+    return name === "간접비" || name === "일반관리비";
+  }
+
+  async function postJson(url, payload) {
+    const body = "_JSON_=" + encodeURIComponent(JSON.stringify(payload));
+    const res = await origFetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      },
+      body,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    // rtask_0008_t0X 계열은 EUC-KR로 내려오는 경우가 있어 방어적으로 디코딩
+    const text = await decodeEucKrResponse(res);
+    return JSON.parse(text);
+  }
+
+  async function fetchIndirectTotal(prjNo) {
+    try {
+      const raw = await postJson(INDIRECT_BUDGET_URL, {
+        USEFAC_SEQ_NO: "10",
+        PRJ_NO: prjNo,
+        REQ_CNT: "1",
+        RES_CD_GB: "",
+      });
+      const rec = (raw && raw.REC) || [];
+      const total = rec
+        .filter((r) => isIndirectExpenseName(r.EXP_NM))
+        .reduce((sum, r) => sum + parseAmount(r.BGT_AMT), 0);
+      return total;
+    } catch (err) {
+      console.log(`[WorkManager] 간접비 예산총액 조회 실패 (${prjNo}):`, err);
+      return null;
+    }
+  }
+
+  async function fetchIndirectCollected(prjNo, startDate) {
+    try {
+      const raw = await postJson(INDIRECT_COLLECTION_URL, {
+        USEFAC_SEQ_NO: "10",
+        PRJ_NO: prjNo,
+        SEARCH_GB1: "1",
+        START_DATE: startDate || "20200101",
+        END_DATE: todayHyphen().replace(/-/g, ""),
+        APPR_DIV_CD: "",
+        PARAM_LST1: "",
+        RES_CD: "",
+        EXP_CD: "",
+        DETAIL_CONT: "",
+        DOC_NO: "",
+      });
+      const rec = (raw && raw.REC) || [];
+      const collected = rec
+        .filter((r) => r.PROC_TYP_NM === "징수결의서" && r.EXP_APPR_STS_NM === "결재완료")
+        .reduce((sum, r) => sum + parseAmount(r.REQ_AMT), 0);
+      return collected;
+    } catch (err) {
+      console.log(`[WorkManager] 간접비 징수내역 조회 실패 (${prjNo}):`, err);
+      return null;
+    }
+  }
+
+  async function collectIndirectCostStatus(projects) {
+    console.log(`[WorkManager] 간접비 진행률 조회 시작 - 총 ${projects.length}건`);
+    const result = {};
+
+    for (let i = 0; i < projects.length; i++) {
+      const { 과제번호: prjNo, 시작일: startDate } = projects[i];
+      if (!prjNo) continue;
+
+      const total = await fetchIndirectTotal(prjNo);
+      await sleep(DELAY_MS);
+      const collected = await fetchIndirectCollected(prjNo, startDate);
+
+      if (total === null || collected === null) {
+        result[prjNo] = { 조회실패: true };
+      } else {
+        result[prjNo] = {
+          간접비총액: total,
+          간접비징수액: collected,
+          간접비진행률: total > 0 ? Math.min(1, collected / total) : null,
+        };
+      }
+
+      console.log(
+        `[WorkManager] (${i + 1}/${projects.length}) ${prjNo} → ${
+          result[prjNo].조회실패
+            ? "조회실패"
+            : `${collected.toLocaleString()} / ${total.toLocaleString()}`
+        }`
+      );
+
+      if (i < projects.length - 1) await sleep(DELAY_MS);
+    }
+
+    console.log("[WorkManager] 간접비 진행률 조회 완료");
+    window.postMessage(
+      {
+        source: "workmanager-inject",
+        type: "INDIRECT_COST_RESULT",
         payload: result,
       },
       "*"
