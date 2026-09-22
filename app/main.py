@@ -1017,7 +1017,6 @@ class MainWindow(QMainWindow):
         for label, icon_name, handler in (
             ("체크리스트", "check_square", lambda: self._goto_section(self.checklist_card)),
             ("메일 안내", "mail", self.open_mail_templates),
-            ("규정 문서", "file", lambda: self._goto_section(self.doc_card)),
             ("설정", "settings", self.open_settings_dialog),
         ):
             btn = NavButton(label, icon_name)
@@ -1293,33 +1292,6 @@ class MainWindow(QMainWindow):
         ml.addWidget(self.status_combo)
         layout.addWidget(manage_card)
 
-        # 규정 문서 카드
-        self.doc_card = QFrame()
-        self.doc_card.setObjectName("subcard")
-        dl = QVBoxLayout(self.doc_card)
-        dl.setContentsMargins(18, 16, 18, 16)
-        dl.setSpacing(8)
-        label = QLabel("규정 문서")
-        label.setObjectName("sectionTitle")
-        dl.addWidget(label)
-        self.doc_label = QLabel("첨부된 문서 없음")
-        self.doc_label.setObjectName("muted")
-        self.doc_label.setWordWrap(True)
-        dl.addWidget(self.doc_label)
-        doc_btn_row = QHBoxLayout()
-        doc_btn_row.setSpacing(8)
-        pick_doc_btn = QPushButton("파일 선택")
-        pick_doc_btn.clicked.connect(self.pick_regulation_doc)
-        open_doc_btn = QPushButton("열기")
-        open_doc_btn.clicked.connect(self.open_regulation_doc)
-        remove_doc_btn = QPushButton("제거")
-        remove_doc_btn.clicked.connect(self.remove_regulation_doc)
-        doc_btn_row.addWidget(pick_doc_btn)
-        doc_btn_row.addWidget(open_doc_btn)
-        doc_btn_row.addWidget(remove_doc_btn)
-        dl.addLayout(doc_btn_row)
-        layout.addWidget(self.doc_card)
-
         # 메모 카드
         memo_card = QFrame()
         memo_card.setObjectName("subcard")
@@ -1350,7 +1322,7 @@ class MainWindow(QMainWindow):
         ab.setContentsMargins(22, 10, 22, 18)
         ab.setSpacing(10)
 
-        self.save_btn = QPushButton("  변경사항 저장")
+        self.save_btn = QPushButton("변경사항 저장")
         self.save_btn.setObjectName("outlined")
         self.save_btn.setIcon(svg_icon("file", "#3562e0", 18))
         self.save_btn.setIconSize(QSize(18, 18))
@@ -1359,16 +1331,7 @@ class MainWindow(QMainWindow):
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save_current_memo)
 
-        mail_btn = QPushButton("  메일 안내")
-        mail_btn.setObjectName("primary")
-        mail_btn.setIcon(svg_icon("mail", "#ffffff", 18))
-        mail_btn.setIconSize(QSize(18, 18))
-        mail_btn.setMinimumHeight(46)
-        mail_btn.setCursor(Qt.PointingHandCursor)
-        mail_btn.clicked.connect(self.open_mail_templates)
-
         ab.addWidget(self.save_btn, 1)
-        ab.addWidget(mail_btn, 1)
         card_layout.addWidget(action_bar)
         return detail_card
 
