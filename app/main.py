@@ -91,7 +91,7 @@ if getattr(sys, "frozen", False):
 else:
     ICON_FILE = BASE_DIR / "app" / "assets" / "icon.png"  # 창/작업표시줄 아이콘
 
-STATUS_OPTIONS = ["진행중", "종료", "정산완료", "보류"]
+STATUS_OPTIONS = ["진행중", "종료", "정산완료", "보류", "검토필요"]
 
 # 체크리스트가 아예 없는 과제에 처음 보여줄 기본 항목 (필요 없으면 비워두고 프리셋에서 골라서 추가)
 DEFAULT_CHECKLIST_TEMPLATE = []
