@@ -325,6 +325,7 @@ ICON_PATHS = {
     "plus_square": '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M12 8v8M8 12h8"/>',
     "check_square": '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 12l3 3 5-6"/>',
     "mail": '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7.5l8.5 6 8.5-6"/>',
+    "account": '<rect x="3" y="6" width="18" height="14" rx="2"/> <path d="M3 10h18"/>',
     "file": '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/>',
     "settings": f'<path d="{_gear_path()}"/><circle cx="12" cy="12" r="2.8"/>',
     "search": '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
@@ -1292,6 +1293,34 @@ class MainWindow(QMainWindow):
         ml.addWidget(self.status_combo)
         layout.addWidget(manage_card)
 
+        
+        # 규정 문서 카드
+        self.doc_card = QFrame()
+        self.doc_card.setObjectName("subcard")
+        dl = QVBoxLayout(self.doc_card)
+        dl.setContentsMargins(18, 16, 18, 16)
+        dl.setSpacing(8)
+        label = QLabel("규정 문서")
+        label.setObjectName("sectionTitle")
+        dl.addWidget(label)
+        self.doc_label = QLabel("첨부된 문서 없음")
+        self.doc_label.setObjectName("muted")
+        self.doc_label.setWordWrap(True)
+        dl.addWidget(self.doc_label)
+        doc_btn_row = QHBoxLayout()
+        doc_btn_row.setSpacing(8)
+        pick_doc_btn = QPushButton("파일 선택")
+        pick_doc_btn.clicked.connect(self.pick_regulation_doc)
+        open_doc_btn = QPushButton("열기")
+        open_doc_btn.clicked.connect(self.open_regulation_doc)
+        remove_doc_btn = QPushButton("제거")
+        remove_doc_btn.clicked.connect(self.remove_regulation_doc)
+        doc_btn_row.addWidget(pick_doc_btn)
+        doc_btn_row.addWidget(open_doc_btn)
+        doc_btn_row.addWidget(remove_doc_btn)
+        dl.addLayout(doc_btn_row)
+        layout.addWidget(self.doc_card)
+
         # 메모 카드
         memo_card = QFrame()
         memo_card.setObjectName("subcard")
@@ -1322,7 +1351,7 @@ class MainWindow(QMainWindow):
         ab.setContentsMargins(22, 10, 22, 18)
         ab.setSpacing(10)
 
-        self.save_btn = QPushButton("변경사항 저장")
+        self.save_btn = QPushButton("  변경사항 저장")
         self.save_btn.setObjectName("outlined")
         self.save_btn.setIcon(svg_icon("file", "#3562e0", 18))
         self.save_btn.setIconSize(QSize(18, 18))
@@ -1331,7 +1360,18 @@ class MainWindow(QMainWindow):
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save_current_memo)
 
+        mail_btn = QPushButton("  수입 결의")
+        mail_btn.setObjectName("primary")
+        mail_btn.setIcon(svg_icon("account", "#ffffff", 18))
+        mail_btn.setIconSize(QSize(18, 18))
+        mail_btn.setMinimumHeight(46)
+        mail_btn.setCursor(Qt.PointingHandCursor)
+        # mail_btn.clicked.connect(self.open_mail_templates) 
+        # TODO: 메일 템플릿 말고 수입결의 처리 필요
+        # NOTE: extension 추후 구현
+
         ab.addWidget(self.save_btn, 1)
+        ab.addWidget(mail_btn, 1)
         card_layout.addWidget(action_bar)
         return detail_card
 
@@ -1859,7 +1899,7 @@ class MainWindow(QMainWindow):
         collected = safe_int(collected)
 
         if total <= 0:
-            show_empty("이 과제는 간접비 확인 되지 않습니다.")
+            show_empty("이 과제는 간접비가 확인되지 않습니다.")
             return
 
         percent = int(round((ratio if ratio is not None else collected / total) * 100))

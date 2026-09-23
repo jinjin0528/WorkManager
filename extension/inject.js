@@ -456,8 +456,13 @@
   const INDIRECT_COLLECTION_URL = "/rtask_0008_t04_01_r001.jct";
 
   function isIndirectExpenseName(name) {
-    return name === "간접비" || name === "일반관리비";
-  }
+  if (!name) return false;
+
+  const expenseName = String(name);
+
+  return expenseName.includes("간접비") ||
+         expenseName.includes("일반관리비");
+}
 
   async function postJson(url, payload) {
     const body = "_JSON_=" + encodeURIComponent(JSON.stringify(payload));
@@ -482,7 +487,7 @@
       const raw = await postJson(INDIRECT_BUDGET_URL, {
         USEFAC_SEQ_NO: "10",
         PRJ_NO: prjNo,
-        REQ_CNT: "1",
+        REQ_CNT: "1" || "2",
         RES_CD_GB: "",
       });
       const rec = (raw && raw.REC) || [];

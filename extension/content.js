@@ -179,7 +179,7 @@ window.addEventListener("message", (event) => {
             // 구분/청구가능액을 동시에 쏘면 서버 세션 쪽에서 충돌(경쟁 상태)이
             // 날 수 있어서, 구분 조회가 다 끝난 뒤 청구가능액을 이어서 실행함
             // (PROJECT_TYPE_RESULT 핸들러에서 이어서 트리거함)
-            console.log("[WorkManager] 과제구분 자동 조회 시작...");
+            console.log("[WorkManager] 과제구분 자동 조회 시작");
             window.postMessage(
               { source: "workmanager-content", type: "FETCH_PROJECT_TYPE", payload: simplified },
               "*"
@@ -280,7 +280,7 @@ window.addEventListener("message", (event) => {
     //   충돌로 청구가능액 조회가 통째로 실패하는 문제가 있었음)
     mergeAndSaveField("구분", simpleMap, "workmanager_projectTypeMap", "과제구분", (merged) => {
       if (!merged || merged.length === 0) return;
-      console.log("[WorkManager] 청구가능액 자동 조회 시작...");
+      console.log("[WorkManager] 청구가능액 자동 조회 시작");
       window.postMessage(
         { source: "workmanager-content", type: "FETCH_CLAIMABLE_AMOUNT", payload: merged },
         "*"
