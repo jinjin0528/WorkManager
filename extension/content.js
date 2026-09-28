@@ -172,7 +172,7 @@ window.addEventListener("message", (event) => {
           },
           () => {
             console.log(
-              `[WorkManager] 캐시 갱신됨: ${simplified.length}건 (팝업에서 내보내기 가능)`
+              `[WorkManager] 캐시 갱신됨: ${simplified.length}건`
             );
 
             // 감지된 프레임에서 자동 조회 트리거.
@@ -254,7 +254,7 @@ window.addEventListener("message", (event) => {
           (v) => v.건수 !== null && v.건수 > 0
         ).length;
         console.log(
-          `[WorkManager] 수입결의 조회 결과 저장 완료: 전체 ${total}건 중 처리됨 ${processed}건`
+          `수입결의 조회 결과 저장 완료: 전체 ${total}건 중 처리됨 ${processed}건`
         );
       }
     );
