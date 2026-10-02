@@ -2426,7 +2426,6 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    # Windows에서 작업표시줄 아이콘이 python.exe 기본 아이콘으로 뜨는 문제 방지
     if sys.platform == "win32":
         import ctypes
 
