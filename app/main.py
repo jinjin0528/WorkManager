@@ -2366,7 +2366,7 @@ class MainWindow(QMainWindow):
         # 예산잔액은 종료임박 과제 팝업에서만 부분적으로 확보되는 참고용 보조 데이터
         if "예산잔액" in project:
             self.budget_note.setText(
-                f"예산잔액(참고, 종료임박 목록 기준): {safe_int(project.get('예산잔액', 0)):,}원"
+                f"예산잔액: {safe_int(project.get('예산잔액', 0)):,}원"
             )
             self.budget_note.show()
         else:
