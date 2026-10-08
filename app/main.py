@@ -2306,7 +2306,7 @@ class MainWindow(QMainWindow):
             self.indirect_label.show()
 
         if total is None or collected is None:
-            show_empty("아직 조회되지 않았습니다. (확장에서 자동 조회됨)")
+            show_empty("아직 조회되지 않았습니다.")
             return
 
         total = safe_int(total)
