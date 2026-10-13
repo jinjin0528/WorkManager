@@ -1654,80 +1654,162 @@ class MainWindow(QMainWindow):
 
     # ---------------- 메일 안내 ----------------
     def open_mail_templates(self):
-        """메일 안내 버튼을 눌렀을 때 메일 양식 목록을 보여준다."""
+        """메일 안내 양식을 프로그램 안에서 조회·추가·수정·삭제하고 저장한다."""
         dialog = QDialog(self)
         dialog.setWindowTitle("메일 안내")
-        dialog.resize(850, 600)
+        dialog.resize(920, 640)
 
         layout = QVBoxLayout(dialog)
-
         templates = load_mail_templates()
 
-        if not templates:
-            empty_label = QLabel(
-                "등록된 메일 양식이 없습니다.\n\n"
-                f"{MAIL_TEMPLATES_FILE} 파일에 메일 양식을 등록하면 여기에 표시됩니다."
-            )
-            empty_label.setWordWrap(True)
-            layout.addWidget(empty_label)
-
-            close_btn = QPushButton("닫기")
-            close_btn.clicked.connect(dialog.accept)
-            layout.addWidget(close_btn)
-            dialog.exec()
-            return
-
         content_layout = QHBoxLayout()
-
         template_list = QListWidget()
+        template_list.setMinimumWidth(220)
         content_layout.addWidget(template_list, 1)
 
         right_layout = QVBoxLayout()
+        name_label = QLabel("양식 이름")
+        name_label.setStyleSheet("font-weight: bold;")
+        right_layout.addWidget(name_label)
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("예: 부가세 신고 안내")
+        right_layout.addWidget(name_edit)
 
-        subject_label = QLabel("제목")
+        subject_label = QLabel("메일 제목")
         subject_label.setStyleSheet("font-weight: bold;")
         right_layout.addWidget(subject_label)
-
         subject_edit = QLineEdit()
-        subject_edit.setReadOnly(True)
+        subject_edit.setPlaceholderText("메일 제목을 입력하세요")
         right_layout.addWidget(subject_edit)
 
-        body_label = QLabel("본문")
+        body_label = QLabel("메일 본문")
         body_label.setStyleSheet("font-weight: bold;")
         right_layout.addWidget(body_label)
-
         body_edit = QTextEdit()
-        body_edit.setReadOnly(True)
-        right_layout.addWidget(body_edit)
+        body_edit.setPlaceholderText("메일 본문을 입력하세요")
+        right_layout.addWidget(body_edit, 1)
+
+        hint = QLabel("※ 내용을 수정한 뒤 ‘저장’을 눌러야 다음 실행에도 반영됩니다.")
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        right_layout.addWidget(hint)
 
         content_layout.addLayout(right_layout, 3)
-        layout.addLayout(content_layout)
+        layout.addLayout(content_layout, 1)
 
         button_row = QHBoxLayout()
-        button_row.addStretch()
+        add_btn = QPushButton("＋ 양식 추가")
+        delete_btn = QPushButton("양식 삭제")
+        save_btn = QPushButton("저장")
+        save_btn.setObjectName("primary")
         close_btn = QPushButton("닫기")
-        close_btn.clicked.connect(dialog.accept)
+        button_row.addWidget(add_btn)
+        button_row.addWidget(delete_btn)
+        button_row.addStretch()
+        button_row.addWidget(save_btn)
         button_row.addWidget(close_btn)
         layout.addLayout(button_row)
 
+        current_index = {"value": -1}
+
+        def refresh_list(select_index=None):
+            template_list.blockSignals(True)
+            template_list.clear()
+            for index, template in enumerate(templates):
+                display_name = (
+                    str(template.get("이름") or "").strip()
+                    or str(template.get("제목") or "").strip()
+                    or f"메일 양식 {index + 1}"
+                )
+                item = QListWidgetItem(display_name)
+                item.setData(Qt.UserRole, index)
+                template_list.addItem(item)
+            if templates:
+                if select_index is None:
+                    select_index = min(max(current_index["value"], 0), len(templates) - 1)
+                template_list.setCurrentRow(select_index)
+            else:
+                current_index["value"] = -1
+                name_edit.clear()
+                subject_edit.clear()
+                body_edit.clear()
+            template_list.blockSignals(False)
+            if templates and template_list.currentItem():
+                show_template(template_list.currentItem())
+
         def show_template(item):
-            index = item.data(Qt.UserRole)
-            if index is None or index >= len(templates):
+            if item is None:
                 return
+            index = item.data(Qt.UserRole)
+            if index is None or not (0 <= index < len(templates)):
+                return
+            current_index["value"] = index
             template = templates[index]
+            name_edit.setText(str(template.get("이름", "")))
             subject_edit.setText(str(template.get("제목", "")))
             body_edit.setPlainText(str(template.get("본문", "")))
 
-        for index, template in enumerate(templates):
-            name = template.get("이름") or template.get("제목") or f"메일 양식 {index + 1}"
-            item = QListWidgetItem(str(name))
-            item.setData(Qt.UserRole, index)
-            template_list.addItem(item)
+        def save_templates_to_file():
+            try:
+                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                with open(MAIL_TEMPLATES_FILE, "w", encoding="utf-8") as f:
+                    json.dump(templates, f, ensure_ascii=False, indent=2)
+                self.status_bar.showMessage("메일 양식이 저장되었습니다.", 3000)
+                return True
+            except OSError as exc:
+                QMessageBox.critical(
+                    dialog, "저장 실패",
+                    f"메일 양식을 저장하지 못했습니다.\n{MAIL_TEMPLATES_FILE}\n\n{exc}"
+                )
+                return False
 
-        template_list.itemClicked.connect(show_template)
-        template_list.setCurrentRow(0)
-        show_template(template_list.item(0))
+        def save_current():
+            index = current_index["value"]
+            if not (0 <= index < len(templates)):
+                QMessageBox.information(dialog, "저장 안내", "먼저 메일 양식을 추가하거나 선택해주세요.")
+                return False
+            templates[index]["이름"] = name_edit.text().strip()
+            templates[index]["제목"] = subject_edit.text()
+            templates[index]["본문"] = body_edit.toPlainText()
+            if not templates[index]["이름"]:
+                templates[index]["이름"] = templates[index]["제목"].strip() or f"메일 양식 {index + 1}"
+            if not save_templates_to_file():
+                return False
+            refresh_list(index)
+            return True
 
+        def add_template():
+            templates.append({"이름": "새 메일 양식", "제목": "", "본문": ""})
+            current_index["value"] = len(templates) - 1
+            refresh_list(current_index["value"])
+            name_edit.setFocus()
+            name_edit.selectAll()
+
+        def delete_template():
+            index = current_index["value"]
+            if not (0 <= index < len(templates)):
+                QMessageBox.information(dialog, "삭제 안내", "삭제할 메일 양식을 선택해주세요.")
+                return
+            answer = QMessageBox.question(
+                dialog, "메일 양식 삭제",
+                f"‘{templates[index].get('이름') or templates[index].get('제목') or '선택한 양식'}’을(를) 삭제할까요?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+            templates.pop(index)
+            current_index["value"] = min(index, len(templates) - 1)
+            if save_templates_to_file():
+                refresh_list(current_index["value"])
+
+        template_list.currentItemChanged.connect(lambda current, _previous: show_template(current))
+        add_btn.clicked.connect(add_template)
+        delete_btn.clicked.connect(delete_template)
+        save_btn.clicked.connect(save_current)
+        close_btn.clicked.connect(dialog.accept)
+
+        refresh_list(0 if templates else None)
         dialog.exec()
 
     # ---------------- 메일 주소 리스트 ----------------
