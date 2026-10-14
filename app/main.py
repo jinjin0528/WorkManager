@@ -2197,8 +2197,7 @@ class MainWindow(QMainWindow):
         return projects
 
     def project_type_of(self, project):
-        """myProjects.json에 병합된 '구분' 필드를 우선 사용.
-        (예전 방식인 별도 projectType.json 파일도 참고용으로 폴백 지원)"""
+        """myProjects.json에 병합된 '구분' 필드를 우선 사용"""
         merged = project.get("구분")
         if merged:
             return merged
