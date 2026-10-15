@@ -2082,7 +2082,6 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1800, lambda: copy_btn.setText(copy_text))
 
         def compose_gmail():
-            """선택한 주소를 받는 사람에 넣은 Gmail 새 메일 작성 창을 브라우저로 연다."""
             emails = chosen_emails()
             if not emails:
                 return
