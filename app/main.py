@@ -17,6 +17,8 @@ import tempfile
 from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from PySide6.QtCore import (
     Qt,
@@ -93,6 +95,7 @@ MEMOS_FILE = DATA_DIR / "memos.json"
 PROJECT_TYPE_FILE = DATA_DIR / "projectType.json"  # 확장의 '과제구분 조회'로 내보낸 데이터 (구버전 호환용)
 MAIL_TEMPLATES_FILE = DATA_DIR / "mailTemplates.json"  # 메일 안내 양식 목록
 MAIL_ADDRESSES_FILE = DATA_DIR / "mailAddressList.json"  # 메일 주소 리스트 (직접 등록분)
+NTS_API_KEY_FILE = DATA_DIR / "apiKey.json"  # 국세청 사업자등록정보 상태조회 API 인증키
 if getattr(sys, "frozen", False):
     ICON_FILE = BASE_DIR / "assets" / "icon.png"  # exe와 같은 폴더에 assets/ 필요
 else:
@@ -1134,6 +1137,13 @@ class MainWindow(QMainWindow):
             btn = NavButton(label, icon_name)
             btn.clicked.connect(lambda _=False, h=handler: h())
             layout.addWidget(btn)
+
+            # 체크리스트 바로 아래에 다른 사이드 메뉴와 동일한 스타일로 배치
+            if label == "체크리스트":
+                tax_lookup_btn = NavButton("사업자등록번호 조회", "search")
+                tax_lookup_btn.setToolTip("사업자등록번호로 일반과세자/간이과세자 여부 조회")
+                tax_lookup_btn.clicked.connect(lambda _=False: self.open_tax_type_lookup())
+                layout.addWidget(tax_lookup_btn)
 
         layout.addStretch(1)
 
@@ -2271,6 +2281,151 @@ class MainWindow(QMainWindow):
             if item is not None and item.data(Qt.UserRole) == prj_no:
                 self.table.selectRow(row)
                 return
+
+    # ---------------- 사업자 과세유형 조회 ----------------
+    def open_tax_type_lookup(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("사업자등록번호 조회")
+        dialog.setMinimumWidth(500)
+        dialog.setStyleSheet("""
+            QDialog { background: #F5F7FC; }
+            QLabel { color: #25324B; font-size: 13px; }
+            QLineEdit { background: #FFFFFF; color: #172033; border: 1px solid #C9D3E5;
+                border-radius: 9px; padding: 11px 12px; font-size: 14px; selection-background-color: #DCE7FF; }
+            QLineEdit:focus { border: 2px solid #5278E8; }
+            QPushButton { border: none; border-radius: 8px; padding: 10px 18px; font-size: 13px; font-weight: 600; }
+            QPushButton#searchButton { background: #356AE6; color: white; }
+            QPushButton#searchButton:hover { background: #2858CC; }
+            QPushButton#searchButton:disabled { background: #AABBE8; color: #F8FAFF; }
+            QPushButton#closeButton { background: #E8EDF6; color: #35445F; }
+            QPushButton#closeButton:hover { background: #DCE4F1; }
+        """)
+        root = QVBoxLayout(dialog)
+        root.setContentsMargins(24, 22, 24, 22)
+        root.setSpacing(14)
+
+        heading = QLabel("사업자등록번호 조회")
+        heading.setStyleSheet("font-size: 21px; font-weight: 700; color: #172B4D;")
+        root.addWidget(heading)
+        subtitle = QLabel("사업자등록번호를 입력하면 국세청 정보를 조회합니다.")
+        subtitle.setStyleSheet("font-size: 13px; color: #63718A;")
+        root.addWidget(subtitle)
+
+        input_label = QLabel("사업자등록번호")
+        input_label.setStyleSheet("font-size: 12px; font-weight: 700; color: #3D4B63; margin-top: 4px;")
+        root.addWidget(input_label)
+        number_input = QLineEdit()
+        number_input.setMaxLength(12)
+        root.addWidget(number_input)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        buttons.addStretch(1)
+        close_btn = QPushButton("닫기")
+        close_btn.setObjectName("closeButton")
+        close_btn.clicked.connect(dialog.reject)
+        search_btn = QPushButton("조회하기")
+        search_btn.setObjectName("searchButton")
+        search_btn.setDefault(True)
+        search_btn.setAutoDefault(True)
+        buttons.addWidget(close_btn)
+        buttons.addWidget(search_btn)
+        root.addLayout(buttons)
+
+        result_card = QFrame()
+        result_card.setStyleSheet("QFrame { background: #FFFFFF; border: 1px solid #DCE4F0; border-radius: 12px; }")
+        result_layout = QVBoxLayout(result_card)
+        result_layout.setContentsMargins(16, 15, 16, 15)
+        result_layout.setSpacing(7)
+        result_caption = QLabel("조회 결과")
+        result_caption.setStyleSheet("font-size: 12px; font-weight: 700; color: #697891; border: none; background: transparent;")
+        result_layout.addWidget(result_caption)
+        result_label = QLabel("사업자등록번호를 입력한 뒤 [조회하기]를 눌러주세요.")
+        result_label.setWordWrap(True)
+        result_label.setMinimumHeight(48)
+        result_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        result_label.setStyleSheet("font-size: 14px; color: #66748A; border: none; background: transparent; padding: 4px 0;")
+        result_layout.addWidget(result_label)
+        root.addWidget(result_card)
+
+        def show_result(message, kind="normal"):
+            palettes = {
+                "success": ("#EAF7EF", "#176B3A", "#C8EBD5"),
+                "error": ("#FFF0F0", "#A62C35", "#F5CDCF"),
+                "normal": ("#F0F4FA", "#334155", "#DCE4F0"),
+                "info": ("#FFF8E7", "#865D08", "#F3E3B3"),
+            }
+            bg, fg, border = palettes.get(kind, palettes["normal"])
+            result_card.setStyleSheet(f"QFrame {{ background: {bg}; border: 1px solid {border}; border-radius: 12px; }}")
+            result_label.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {fg}; border: none; background: transparent; padding: 4px 0;")
+            result_label.setText(message)
+
+        def get_api_key():
+            try:
+                if NTS_API_KEY_FILE.exists():
+                    saved = json.loads(NTS_API_KEY_FILE.read_text(encoding="utf-8"))
+                    key = str(saved.get("service_key", "")).strip()
+                    if key and not key.startswith("여기에_"):
+                        return key
+            except Exception:
+                pass
+            return ""
+
+        def search_tax_type():
+            business_no = re.sub(r"\D", "", number_input.text())
+            if len(business_no) != 10:
+                show_result("사업자등록번호 10자리를 입력해 주세요.", "error")
+                number_input.setFocus()
+                return
+
+            service_key = get_api_key()
+            if not service_key:
+                show_result("API 인증키가 설정되지 않았습니다.", "error")
+                return
+
+            search_btn.setEnabled(False)
+            search_btn.setText("조회 중")
+            show_result("국세청 정보를 조회하고 있습니다. 잠시만 기다려 주세요.", "info")
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                url = "https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey=" + quote(service_key, safe="")
+                payload = json.dumps({"b_no": [business_no]}).encode("utf-8")
+                request = Request(url, data=payload, headers={"Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+                with urlopen(request, timeout=12) as response:
+                    response_data = json.loads(response.read().decode("utf-8"))
+
+                rows = response_data.get("data", [])
+                if not rows:
+                    show_result("조회 결과가 없습니다. 사업자등록번호를 확인해 주세요.", "error")
+                    return
+
+                row = rows[0]
+                tax_type = str(row.get("tax_type", "")).strip()
+                if tax_type in ("일반과세자", "간이과세자"):
+                    message = tax_type + "입니다."
+                    kind = "success"
+                elif tax_type:
+                    message = "과세유형: " + tax_type
+                    kind = "info"
+                else:
+                    message = "과세유형을 확인할 수 없습니다. 사업자등록번호 또는 조회 결과를 확인해 주세요."
+                    kind = "error"
+                show_result(message, kind)
+            except HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:250]
+                show_result(f"API 요청 오류({exc.code})입니다. 인증키와 활용신청 상태를 확인해 주세요.\n{detail}", "error")
+            except URLError as exc:
+                show_result(f"인터넷 연결 또는 API 서버에 연결하지 못했습니다.\n{exc}", "error")
+            except Exception as exc:
+                show_result(f"조회 중 오류가 발생했습니다.\n{exc}", "error")
+            finally:
+                QApplication.restoreOverrideCursor()
+                search_btn.setEnabled(True)
+                search_btn.setText("조회하기")
+
+        search_btn.clicked.connect(search_tax_type)
+        number_input.returnPressed.connect(search_tax_type)
+        dialog.exec()
 
     # ---------------- 체크리스트 UI ----------------
     def rebuild_checklist_ui(self, checklist):
