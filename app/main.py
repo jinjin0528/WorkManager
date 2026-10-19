@@ -1001,7 +1001,7 @@ class MainWindow(QMainWindow):
         if PROJECTS_FILE.exists() and str(PROJECTS_FILE) not in self.file_watcher.files():
             self.file_watcher.addPath(str(PROJECTS_FILE))
         self.reload_data()
-        self.status_bar.showMessage("myProjects.json 변경 감지 - 자동 새로고침됨", 3000)
+        self.status_bar.showMessage("과제 정보 업데이트", 3000)
 
     # ---------------- UI 구성 ----------------
     def _build_ui(self):
