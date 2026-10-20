@@ -977,7 +977,7 @@ class MainWindow(QMainWindow):
 
     # ---------------- 파일 자동 감지 ----------------
     def _setup_file_watcher(self):
-        """다운로드 폴더의 myProjects.json이 확장에 의해 갱신되면 자동으로 새로고침."""
+        """과제 정보 업데이트"""
         DOWNLOADS_WORKMANAGER_DIR.mkdir(parents=True, exist_ok=True)
 
         self.file_watcher = QFileSystemWatcher(self)
