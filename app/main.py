@@ -938,7 +938,7 @@ class StatusStepper(QWidget):
 
 
 class NavButton(QPushButton):
-    """사이드바 메뉴 버튼 (아이콘 + 텍스트, 선택 시 파란 배경)."""
+    """사이드바 메뉴 버튼"""
 
     def __init__(self, text: str, icon_name: str, parent=None):
         super().__init__("  " + text, parent)
