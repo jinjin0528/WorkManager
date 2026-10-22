@@ -867,7 +867,7 @@ class PillDelegate(QStyledItemDelegate):
 
 
 class StatusStepper(QWidget):
-    """과제개시 → 진행중 → 종료 → 정산완료 단계 표시."""
+    """과제 진행 확인."""
 
     STEPS = ["과제개시", "진행중", "종료", "정산완료"]
 
