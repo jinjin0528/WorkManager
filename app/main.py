@@ -878,7 +878,7 @@ class StatusStepper(QWidget):
         self.setMinimumHeight(68)
 
     def set_state(self, current: int, accent: str = PRIMARY):
-        """current: 현재 단계 번호(0~3). STEPS 길이(4)면 모든 단계 정산완료로 표시."""
+        """진행 단계"""
         self._current = current
         self._accent = QColor(accent)
         self.update()
