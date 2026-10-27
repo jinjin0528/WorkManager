@@ -825,7 +825,7 @@ PILL_FG_ROLE = Qt.UserRole + 2
 
 
 class PillDelegate(QStyledItemDelegate):
-    """D-day / 상태 / 구분 셀을 둥근 알약(pill) 배지로 그려주는 delegate.
+    """상태 확인.
     아이템의 PILL_BG_ROLE / PILL_FG_ROLE 에 색상(hex)이 있을 때만 배지로 그린다."""
 
     def paint(self, painter, option, index):
