@@ -469,7 +469,7 @@ SPROUT_SVG = (
 
 
 def _render_svg(svg: str, width: int, height: int, scale: int = 2) -> QPixmap:
-    """SVG 문자열을 (고해상도 화면에서도 선명하도록) scale배 크기의 QPixmap으로 그린다."""
+    """이미지 처리"""
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
     pixmap = QPixmap(width * scale, height * scale)
     pixmap.fill(Qt.transparent)
@@ -495,7 +495,7 @@ def svg_icon(name: str, color: str, size: int = 20) -> QIcon:
 
 
 def build_qss_assets() -> dict:
-    """스타일시트(QSS)의 url(...)에서 쓸 체크 표시/화살표 이미지를 임시 폴더에 만들어 둔다."""
+    """체크 표시/화살표 이미지를 임시 폴더에 만들어 둔다."""
     out_dir = Path(tempfile.gettempdir()) / "WorkManager_ui"
     result = {}
     try:
