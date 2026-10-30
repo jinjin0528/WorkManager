@@ -176,7 +176,7 @@ def dday_pill(days):
 
 
 def format_date(value, sep="-"):
-    """'20261231' -> '2026-12-31'. 변환할 수 없으면 원본(또는 '-')을 그대로 반환."""
+    """'20261231' -> '2026-12-31'. """
     parsed = parse_yyyymmdd(value) if isinstance(value, str) else None
     if parsed is None:
         return str(value) if value else "-"
