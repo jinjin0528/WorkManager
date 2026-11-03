@@ -136,7 +136,7 @@ PHONE_PATTERN = re.compile(r"0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}")
 # 유틸 함수
 # ---------------------------------------------------------------------------
 def parse_yyyymmdd(value: str):
-    """'20261231' 형태의 문자열을 date 객체로 변환. 실패하면 None."""
+    """날짜를 date 객체로 변환"""
     if not value or len(value) != 8:
         return None
     try:
