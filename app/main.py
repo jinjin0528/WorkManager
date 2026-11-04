@@ -2134,10 +2134,10 @@ class MainWindow(QMainWindow):
         if not self.projects:
             msg_parts.append(f"myProjects.json 없음/비어있음 ({PROJECTS_FILE})")
         else:
-            msg_parts.append(f"과제 {len(self.projects)}건 로드됨")
+            msg_parts.append(f"과제 {len(self.projects)}건")
 
         if self.project_types:
-            msg_parts.append(f"과제구분 {len(self.project_types)}건 로드됨")
+            msg_parts.append(f"과제구분 {len(self.project_types)}건")
         else:
             msg_parts.append("과제구분 데이터 없음 (확장에서 내보내면 반영됩니다)")
 
