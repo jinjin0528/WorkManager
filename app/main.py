@@ -2139,7 +2139,7 @@ class MainWindow(QMainWindow):
         if self.project_types:
             msg_parts.append(f"과제구분 {len(self.project_types)}건")
         else:
-            msg_parts.append("과제구분 데이터 없음 (확장에서 내보내면 반영됩니다)")
+            msg_parts.append("과제구분 데이터 없음")
 
         self.status_bar.showMessage("  |  ".join(msg_parts))
 
