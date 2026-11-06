@@ -2144,7 +2144,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("  |  ".join(msg_parts))
 
     def _status_of(self, project):
-        """memos.json에 저장된 상태(없으면 날짜 기준 자동값)."""
+        """memos.json에 저장된 값"""
         memo_entry = self.memos.get(project.get("과제번호", ""), {})
         return resolve_status(memo_entry, parse_yyyymmdd(project.get("종료일", "")))
 
