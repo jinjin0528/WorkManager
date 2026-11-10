@@ -95,18 +95,46 @@ function mergeIndirectCostIntoProjects(projects, indirectMap) {
   });
 }
 
-function mergeAndSaveIndirectCost(indirectMap) {
+function mergeAndSaveIndirectCost(indirectMap, onDone) {
   chrome.storage.local.set({ workmanager_indirectMap: indirectMap }, () => {
     chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
       const cached = result.workmanager_cachedProjects;
-      if (!cached || !cached.projects || cached.projects.length === 0) return;
+      if (!cached || !cached.projects || cached.projects.length === 0) {
+        if (onDone) onDone([]);
+        return;
+      }
 
       const merged = mergeIndirectCostIntoProjects(cached.projects, indirectMap);
       chrome.storage.local.set(
         { workmanager_cachedProjects: { ...cached, projects: merged, updatedAt: new Date().toISOString() } },
-        () => console.log("[WorkManager] 간접비 진행률을 과제 목록에 병합 완료")
+        () => {
+          console.log("[WorkManager] 간접비 진행률을 과제 목록에 병합 완료");
+          if (onDone) onDone(merged);
+        }
       );
     });
+  });
+}
+
+// 수입결의 대기 입금 매칭 결과는 과제마다 있을 수도, 없을 수도 있으므로
+// (매칭 안 되면 비워줘야) 매번 전체 과제에 덮어써서 지난 알림이 남지 않게 함
+function mergeIncomeMatchIntoProjects(projects, matchMap) {
+  return projects.map((p) => ({
+    ...p,
+    수입결의대기: matchMap[p.과제번호] || [],
+  }));
+}
+
+function mergeAndSaveIncomeMatch(matchMap) {
+  chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
+    const cached = result.workmanager_cachedProjects;
+    if (!cached || !cached.projects || cached.projects.length === 0) return;
+
+    const merged = mergeIncomeMatchIntoProjects(cached.projects, matchMap);
+    chrome.storage.local.set(
+      { workmanager_cachedProjects: { ...cached, projects: merged, updatedAt: new Date().toISOString() } },
+      () => console.log("[WorkManager] 수입결의 대기 매칭 결과를 과제 목록에 병합 완료")
+    );
   });
 }
 
@@ -313,6 +341,29 @@ window.addEventListener("message", (event) => {
     const total = Object.keys(indirectMap).length;
     const success = Object.values(indirectMap).filter((v) => !v.조회실패).length;
     console.log(`[WorkManager] 간접비 진행률 조회 결과: 전체 ${total}건 중 ${success}건 성공`);
-    mergeAndSaveIndirectCost(indirectMap);
+
+    // 간접비 병합이 끝난 뒤에야 수입결의 대기 입금 매칭을 이어서 시작
+    mergeAndSaveIndirectCost(indirectMap, (merged) => {
+      if (!merged || merged.length === 0) return;
+      console.log("[WorkManager] 수입결의 대기 입금 매칭 조회 시작...");
+      window.postMessage(
+        { source: "workmanager-content", type: "FETCH_INCOME_MATCH", payload: merged },
+        "*"
+      );
+    });
+  }
+
+  if (event.data.type === "INCOME_MATCH_RESULT") {
+    const matchMap = event.data.payload;
+    if (matchMap === null) {
+      console.log("[WorkManager] 수입결의 대기 입금 매칭 조회 실패");
+      return;
+    }
+    const total = Object.keys(matchMap).length;
+    console.log(`[WorkManager] 수입결의 대기 매칭 결과: ${total}개 과제에 미처리 입금 있음`);
+    chrome.storage.local.set({
+      workmanager_incomeMatchMap: { data: matchMap, updatedAt: new Date().toISOString() },
+    });
+    mergeAndSaveIncomeMatch(matchMap);
   }
 });

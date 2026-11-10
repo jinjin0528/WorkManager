@@ -265,6 +265,10 @@
     if (event.data.type === "FETCH_INDIRECT_COST") {
       collectIndirectCostStatus(event.data.payload || []);
     }
+
+    if (event.data.type === "FETCH_INCOME_MATCH") {
+      collectIncomeMatchAlerts(event.data.payload || []);
+    }
   });
 
   // -------------------------------------------------------------------
@@ -567,6 +571,109 @@
         type: "INDIRECT_COST_RESULT",
         payload: result,
       },
+      "*"
+    );
+  }
+
+  // -------------------------------------------------------------------
+  // 수입결의 대기 입금 매칭 조회
+  // - 수입결의(계좌거래) 화면의 조회 API(rexpe_0009_17_r001.jct)를 호출해서
+  //   아직 확인제외 처리되지 않은(= 수입결의가 안 끝난) 입금 내역을 가져온 뒤,
+  //   거래 적요(JEOKYO/JEOKYO_STR)가 내 과제의 "지원기관"과 겹치면
+  //   "이 과제에 입금됐다"로 판단해서 매칭한다.
+  // - 계좌 자체는 산학협력단 공용 계좌(KEB 하나은행) 1개라 과제별 반복 호출이
+  //   아니라 한 번만 조회하면 됨.
+  // -------------------------------------------------------------------
+  const INCOME_MATCH_URL = "/rexpe_0009_17_r001.jct";
+  const INCOME_MATCH_BANK_CD = "10000081"; // KEB 하나은행
+  const INCOME_MATCH_ACCT_NO = "55991003245304"; // 가천대학교산학협력단 계좌
+  const INCOME_MATCH_LOOKBACK_DAYS = 31;
+
+  function toYmd(d) {
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}${mm}${dd}`;
+  }
+
+  // 적요(은행 거래 내역 텍스트)는 글자수가 짧게 잘려서 내려오는 경우가 많아
+  // ("한국전자기술"처럼) 지원기관명과 완전히 일치하지 않음.
+  // 공백만 제거하고 양쪽 중 한쪽이 다른 쪽에 포함되면 매칭으로 판단.
+  function normalizeOrgText(s) {
+    return (s || "").replace(/\s+/g, "").trim();
+  }
+
+  function isOrgMatch(jeokyo, orgName) {
+    const a = normalizeOrgText(jeokyo);
+    const b = normalizeOrgText(orgName);
+    if (a.length < 2 || b.length < 2) return false;
+    return a.includes(b) || b.includes(a);
+  }
+
+  async function fetchIncomeMatchRecords() {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - INCOME_MATCH_LOOKBACK_DAYS);
+
+    try {
+      const raw = await postJson(INCOME_MATCH_URL, {
+        START_DT: toYmd(start),
+        END_DT: toYmd(end),
+        BIZ_NO: "",
+        BANK_CD: INCOME_MATCH_BANK_CD,
+        IN_BANK_CD: "",
+        ACCT_NO: INCOME_MATCH_ACCT_NO,
+        APPR_DIV_CD: "5",
+        SEARCH_GB2: "10",
+        SEARCH_NM: "",
+        SEARCH_GB: "1",
+        UPD_YN: "Y",
+        RCMS_PRJ_INC_YN: "Y",
+        MILE_PRJ_INC_YN: "Y",
+        MAP_EXCEPT_YN: "N", // 확인제외 처리 안 된(=아직 수입결의 안 끝난) 것만
+        ACCT_HIS_SEQ: "",
+        REQ_APPL_TYPE_CD: "3",
+      });
+      const rec = (raw && raw.REC) || [];
+      return rec.map(normalizeKeys);
+    } catch (err) {
+      console.log("[WorkManager] 수입결의 대기 입금 조회 실패:", err);
+      return null;
+    }
+  }
+
+  async function collectIncomeMatchAlerts(projects) {
+    console.log("[WorkManager] 수입결의 대기 입금 매칭 조회 시작...");
+    const records = await fetchIncomeMatchRecords();
+
+    if (records === null) {
+      window.postMessage(
+        { source: "workmanager-inject", type: "INCOME_MATCH_RESULT", payload: null },
+        "*"
+      );
+      return;
+    }
+
+    const result = {}; // 과제번호 -> [{거래일자, 입금액, 적요, 거래번호}]
+    projects.forEach((p) => {
+      if (!p.과제번호 || !p.지원기관) return;
+      const matched = records.filter((r) =>
+        isOrgMatch(r.JEOKYO_STR || r.JEOKYO, p.지원기관)
+      );
+      if (matched.length > 0) {
+        result[p.과제번호] = matched.map((r) => ({
+          거래일자: r.ACCT_TXDAY || "",
+          입금액: parseAmount(r.TX_AMT),
+          적요: r.JEOKYO_STR || r.JEOKYO || "",
+          거래번호: r.ACCT_HIS_SEQ || "",
+        }));
+      }
+    });
+
+    console.log(
+      `[WorkManager] 수입결의 대기 매칭 완료 - 전체 입금 ${records.length}건 중 ${Object.keys(result).length}개 과제에 매칭됨`
+    );
+    window.postMessage(
+      { source: "workmanager-inject", type: "INCOME_MATCH_RESULT", payload: result },
       "*"
     );
   }

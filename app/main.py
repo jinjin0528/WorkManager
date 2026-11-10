@@ -705,6 +705,19 @@ QFrame#statGreen {
     border: 1px solid #d5eee0;
     border-radius: 12px;
 }
+QFrame#incomeNoticeFrame {
+    background: #eff9f4;
+    border: 1px solid #c9ecd9;
+    border-radius: 12px;
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+}
+QLabel#incomeNoticeText {
+    color: #1c7a47;
+    font-size: 9.5pt;
+    font-weight: 600;
+}
 QFrame#promo {
     background: #e8effe;
     border: none;
@@ -1128,7 +1141,7 @@ class MainWindow(QMainWindow):
         layout.addSpacing(8)
 
         for label, icon_name, handler in (
-            ("체크리스트", "check_square", lambda: self._goto_section(self.checklist_card)),
+            ("사업자등록번호 조회", "search", self.open_tax_type_lookup),
             ("메일 안내", "mail", self.open_mail_templates),
             ("메일 주소 리스트", "mailAddress", self.open_mail_address_list),
             ("설정", "settings", self.open_settings_dialog),
@@ -1136,15 +1149,19 @@ class MainWindow(QMainWindow):
             btn = NavButton(label, icon_name)
             btn.clicked.connect(lambda _=False, h=handler: h())
             layout.addWidget(btn)
-
-            # 체크리스트 바로 아래에 다른 사이드 메뉴와 동일한 스타일로 배치
-            if label == "체크리스트":
-                tax_lookup_btn = NavButton("사업자등록번호 조회", "search")
-                tax_lookup_btn.setToolTip("사업자등록번호로 일반과세자/간이과세자 여부 조회")
-                tax_lookup_btn.clicked.connect(lambda _=False: self.open_tax_type_lookup())
-                layout.addWidget(tax_lookup_btn)
+            if label == "사업자등록번호 조회":
+                btn.setToolTip("사업자등록번호로 일반과세자/간이과세자 여부 조회")
 
         layout.addStretch(1)
+
+        # 사이드바 맨 아래 - 수입결의 대기(지원기관 입금 매칭) 알림 영역
+        self.income_notice_frame = QFrame()
+        self.income_notice_frame.setObjectName("incomeNoticeFrame")
+        self.income_notice_frame.setVisible(False)
+        self.income_notice_layout = QVBoxLayout(self.income_notice_frame)
+        self.income_notice_layout.setContentsMargins(14, 10, 14, 10)
+        self.income_notice_layout.setSpacing(6)
+        layout.addWidget(self.income_notice_frame)
 
         return sidebar
 
@@ -1601,6 +1618,37 @@ class MainWindow(QMainWindow):
         self.bell_btn.setToolTip(
             f"종료 임박(7일 이내) 과제 {urgent}건" if urgent else "종료 임박 과제 없음"
         )
+
+    def _update_income_notice(self):
+        """지원기관으로부터 입금됐지만 아직 수입결의가 안 된 과제를
+        사이드바 맨 아래에 문구로 표시 ('연구비가 들어왔어요. 해당 과제: ...')."""
+        while self.income_notice_layout.count():
+            item = self.income_notice_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        matched_names = []
+        seen_prj_no = set()
+        for p in self.projects:
+            if not (p.get("수입결의대기") or []):
+                continue
+            prj_no = p.get("과제번호")
+            if prj_no in seen_prj_no:
+                continue
+            seen_prj_no.add(prj_no)
+            matched_names.append(p.get("과제명", "(과제명 없음)"))
+
+        if not matched_names:
+            self.income_notice_frame.setVisible(False)
+            return
+
+        self.income_notice_frame.setVisible(True)
+        for name in matched_names:
+            label = QLabel(f"💰 연구비가 들어왔어요.\n해당 과제: {name}")
+            label.setObjectName("incomeNoticeText")
+            label.setWordWrap(True)
+            self.income_notice_layout.addWidget(label)
 
     def _on_bell_clicked(self):
         self.sort_combo.setCurrentText("종료일 임박순")
@@ -2142,6 +2190,7 @@ class MainWindow(QMainWindow):
             msg_parts.append("과제구분 데이터 없음")
 
         self.status_bar.showMessage("  |  ".join(msg_parts))
+        self._update_income_notice()
 
     def _status_of(self, project):
         """memos.json에 저장된 값"""
