@@ -116,25 +116,14 @@ function mergeAndSaveIndirectCost(indirectMap, onDone) {
   });
 }
 
-// 수입결의 대기 입금 매칭 결과는 과제마다 있을 수도, 없을 수도 있으므로
-// (매칭 안 되면 비워줘야) 매번 전체 과제에 덮어써서 지난 알림이 남지 않게 함
-function mergeIncomeMatchIntoProjects(projects, matchMap) {
-  return projects.map((p) => ({
-    ...p,
-    수입결의대기: matchMap[p.과제번호] || [],
-  }));
-}
-
-function mergeAndSaveIncomeMatch(matchMap) {
-  chrome.storage.local.get(["workmanager_cachedProjects"], (result) => {
-    const cached = result.workmanager_cachedProjects;
-    if (!cached || !cached.projects || cached.projects.length === 0) return;
-
-    const merged = mergeIncomeMatchIntoProjects(cached.projects, matchMap);
-    chrome.storage.local.set(
-      { workmanager_cachedProjects: { ...cached, projects: merged, updatedAt: new Date().toISOString() } },
-      () => console.log("[WorkManager] 수입결의 대기 매칭 결과를 과제 목록에 병합 완료")
-    );
+// 수입결의 대기 입금 매칭 결과는 "특정 과제의 확정 데이터"가 아니라
+// "이 지원기관에서 입금이 있었다"는 참고 신호일 뿐이라, 과제 레코드
+// (workmanager_cachedProjects / myProjects.json)에는 절대 섞지 않고
+// 완전히 별도의 storage 키 + 별도 파일(incomeAlerts.json)로 분리해서 보관함.
+// 한 지원기관에 과제가 여러 개면 실제로는 다른 과제 몫일 수도 있기 때문.
+function saveIncomeAlerts(matchMap) {
+  chrome.storage.local.set({
+    workmanager_incomeAlerts: { data: matchMap, updatedAt: new Date().toISOString() },
   });
 }
 
@@ -360,10 +349,8 @@ window.addEventListener("message", (event) => {
       return;
     }
     const total = Object.keys(matchMap).length;
-    console.log(`[WorkManager] 수입결의 대기 매칭 결과: ${total}개 과제에 미처리 입금 있음`);
-    chrome.storage.local.set({
-      workmanager_incomeMatchMap: { data: matchMap, updatedAt: new Date().toISOString() },
-    });
-    mergeAndSaveIncomeMatch(matchMap);
+    console.log(`[WorkManager] 수입결의 대기 매칭 결과: ${total}개 과제(지원기관 기준)에 참고용 입금 신호 있음`);
+    // myProjects.json과는 별개로 incomeAlerts.json에만 반영됨 (background.js가 내보냄)
+    saveIncomeAlerts(matchMap);
   }
 });

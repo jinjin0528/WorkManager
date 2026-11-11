@@ -90,6 +90,10 @@ DATA_DIR = BASE_DIR / "data"
 # 팀원 각자 컴퓨터에서 실행해도 경로를 따로 손볼 필요가 없음(심볼릭 링크 불필요).
 DOWNLOADS_WORKMANAGER_DIR = Path.home() / "Downloads" / "WorkManager"
 PROJECTS_FILE = DOWNLOADS_WORKMANAGER_DIR / "myProjects.json"
+# 계좌 입금 적요 ↔ 지원기관 매칭 결과 - 특정 과제 데이터가 아니라 "이 기관에서 입금이
+# 있었다"는 별도 신호이므로 과제 레코드에 섞지 않고 독립된 파일로 분리해서 받음
+# (한 지원기관에 과제가 여러 개면 실제로는 다른 과제 몫일 수도 있기 때문)
+INCOME_ALERTS_FILE = DOWNLOADS_WORKMANAGER_DIR / "incomeAlerts.json"
 
 MEMOS_FILE = DATA_DIR / "memos.json"
 PROJECT_TYPE_FILE = DATA_DIR / "projectType.json"  # 확장의 '과제구분 조회'로 내보낸 데이터 (구버전 호환용)
@@ -277,6 +281,19 @@ def load_projects():
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def load_income_alerts():
+    """{과제번호: [{거래일자, 입금액, 적요, 거래번호}, ...]} 형태.
+    과제 레코드와 분리된 별도 파일이라 myProjects.json을 건드리지 않음."""
+    if not INCOME_ALERTS_FILE.exists():
+        return {}
+    try:
+        with open(INCOME_ALERTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def load_memos():
@@ -980,6 +997,7 @@ class MainWindow(QMainWindow):
         self.projects = []       # myProjects.json 원본 (청구가능액이 계산값으로 덮어써질 수 있음)
         self.memos = {}          # 과제번호 -> {상태, 체크리스트, 규정문서, 메모, 연락담당자, 업데이트}
         self.project_types = {}  # 과제번호 -> {구분, 계정단위명}
+        self.income_alerts = {}  # 과제번호 -> [{거래일자, 입금액, 적요, 거래번호}, ...] (myProjects.json과 분리된 별도 파일)
         self.current_prj_no = None
         self.checklist_rows = []  # 현재 그려진 체크리스트 행 위젯들 (rebuild용)
 
@@ -996,6 +1014,8 @@ class MainWindow(QMainWindow):
         self.file_watcher.addPath(str(DOWNLOADS_WORKMANAGER_DIR))
         if PROJECTS_FILE.exists():
             self.file_watcher.addPath(str(PROJECTS_FILE))
+        if INCOME_ALERTS_FILE.exists():
+            self.file_watcher.addPath(str(INCOME_ALERTS_FILE))
 
         self._reload_debounce_timer = QTimer(self)
         self._reload_debounce_timer.setSingleShot(True)
@@ -1012,6 +1032,8 @@ class MainWindow(QMainWindow):
         # 파일 감시가 끊기는 경우(파일 삭제 후 재생성 등)를 대비해 다시 등록
         if PROJECTS_FILE.exists() and str(PROJECTS_FILE) not in self.file_watcher.files():
             self.file_watcher.addPath(str(PROJECTS_FILE))
+        if INCOME_ALERTS_FILE.exists() and str(INCOME_ALERTS_FILE) not in self.file_watcher.files():
+            self.file_watcher.addPath(str(INCOME_ALERTS_FILE))
         self.reload_data()
         self.status_bar.showMessage("과제 정보 업데이트", 3000)
 
@@ -1620,34 +1642,61 @@ class MainWindow(QMainWindow):
         )
 
     def _update_income_notice(self):
-        """지원기관으로부터 입금됐지만 아직 수입결의가 안 된 과제를
-        사이드바 맨 아래에 문구로 표시 ('연구비가 들어왔어요. 해당 과제: ...')."""
+        """계좌 입금 적요가 지원기관명과 겹치는 경우를 프로그램 홈(사이드바) 맨 아래에 안내.
+
+        incomeAlerts.json은 myProjects.json(과제 레코드)과 완전히 분리된 파일이고,
+        여기서도 '과제번호별 딕셔너리'를 그 과제의 확정 데이터로 쓰는 게 아니라
+        단순 조회용 키로만 사용함 — 한 지원기관에 과제가 여러 개면 실제로는
+        다른 과제 몫일 수도 있으므로, 화면에는 "이 기관에서 입금이 있었다"는
+        사실과 "참고로 네 과제 중 이 기관과 연결된 과제들"을 같이 보여주고,
+        어떤 과제가 맞는지는 사람이 직접 확인하게 함."""
         while self.income_notice_layout.count():
             item = self.income_notice_layout.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.deleteLater()
 
-        matched_names = []
-        seen_prj_no = set()
-        for p in self.projects:
-            if not (p.get("수입결의대기") or []):
-                continue
-            prj_no = p.get("과제번호")
-            if prj_no in seen_prj_no:
-                continue
-            seen_prj_no.add(prj_no)
-            matched_names.append(p.get("과제명", "(과제명 없음)"))
+        if not self.income_alerts:
+            self.income_notice_frame.setVisible(False)
+            return
 
-        if not matched_names:
+        # 과제번호 -> 과제 정보 (표시용 조회 전용, income_alerts를 과제 데이터에 섞지 않음)
+        project_by_no = {p.get("과제번호"): p for p in self.projects}
+
+        # 지원기관 단위로 묶어서 보여줌: 같은 기관에 과제가 여러 개면
+        # "이 기관에서 입금이 있었고, 후보 과제는 이만큼 있다"로 한 번에 안내
+        org_groups = {}  # org_name -> {"items": set(거래번호 기준 dedup용 list), "candidates": [과제명,...]}
+        for prj_no, items in self.income_alerts.items():
+            if not items:
+                continue
+            p = project_by_no.get(prj_no)
+            org = (p.get("지원기관") if p else None) or "(지원기관 확인 필요)"
+            name = p.get("과제명", "(과제명 없음)") if p else f"(과제정보 없음: {prj_no})"
+            group = org_groups.setdefault(org, {"items": [], "candidates": []})
+            group["candidates"].append(name)
+            for it in items:
+                group["items"].append(it)
+
+        if not org_groups:
             self.income_notice_frame.setVisible(False)
             return
 
         self.income_notice_frame.setVisible(True)
-        for name in matched_names:
-            label = QLabel(f"💰 연구비가 들어왔어요.\n해당 과제: {name}")
+        for org, group in org_groups.items():
+            candidates = ", ".join(group["candidates"])
+            label = QLabel(f"💰 [{org}]에서 입금이 있었어요.\n후보 과제: {candidates}")
             label.setObjectName("incomeNoticeText")
             label.setWordWrap(True)
+
+            tooltip_lines = [
+                f"{format_date(it.get('거래일자', ''))}  {safe_int(it.get('입금액', 0)):,}원  적요: {it.get('적요', '')}"
+                for it in group["items"]
+            ]
+            label.setToolTip(
+                "이 지원기관과 연결된 과제가 여러 개일 수 있어 어느 과제 입금인지는 "
+                "확정되지 않았습니다. 수입결의 화면에서 직접 확인해주세요.\n\n"
+                + "\n".join(tooltip_lines)
+            )
             self.income_notice_layout.addWidget(label)
 
     def _on_bell_clicked(self):
@@ -2176,6 +2225,7 @@ class MainWindow(QMainWindow):
         self.projects = load_projects()
         self.memos = load_memos()
         self.project_types = load_project_types()
+        self.income_alerts = load_income_alerts()
         self.apply_filter()
 
         msg_parts = []
