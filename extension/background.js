@@ -30,7 +30,7 @@ function createAutoExporter({ storageKey, lastJsonKey, lastAtKey, filename, extr
 
       const newJson = JSON.stringify(data, null, 2);
       if (newJson === result[lastJsonKey]) {
-        console.log(`[WorkManager] ${label}: 이전 내보내기와 내용이 동일함 - 다운로드 생략`);
+        console.log(`[WorkManager] ${label}: 업데이트 내역 없음`);
         return;
       }
 
@@ -74,8 +74,6 @@ const incomeAlertsExporter = createAutoExporter({
   lastAtKey: "workmanager_lastIncomeAlertsExportAt",
   filename: "incomeAlerts.json",
   label: "수입결의 대기 매칭",
-  // 매칭 결과가 전부 사라진(0건) 경우에도 파일을 비워서 내보내야
-  // Python 쪽 알림이 같이 사라지므로, data가 {}여도 내보냄 (undefined일 때만 스킵)
   extractData: (stored) => (stored && stored.data !== undefined ? stored.data : undefined),
 });
 
