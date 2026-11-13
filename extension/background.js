@@ -45,7 +45,7 @@ function createAutoExporter({ storageKey, lastJsonKey, lastAtKey, filename, extr
             console.log(`[WorkManager] ${label} 자동 내보내기 실패:`, chrome.runtime.lastError.message);
             return;
           }
-          console.log(`[WorkManager] ${filename} 자동 내보내기 완료 (${label}, 내용 변경 감지됨)`);
+          console.log(`업데이트 확인: [WorkManager] ${filename} 자동 내보내기 완료`);
           chrome.storage.local.set({
             [lastAtKey]: new Date().toISOString(),
             [lastJsonKey]: newJson,
