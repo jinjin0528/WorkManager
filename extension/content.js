@@ -334,7 +334,7 @@ window.addEventListener("message", (event) => {
     // 간접비 병합이 끝난 뒤에야 수입결의 대기 입금 매칭을 이어서 시작
     mergeAndSaveIndirectCost(indirectMap, (merged) => {
       if (!merged || merged.length === 0) return;
-      console.log("[WorkManager] 수입결의 대기 입금 매칭 조회 시작...");
+      console.log("[WorkManager] 수입결의 입금 확인 중");
       window.postMessage(
         { source: "workmanager-content", type: "FETCH_INCOME_MATCH", payload: merged },
         "*"
