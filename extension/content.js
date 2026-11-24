@@ -349,7 +349,7 @@ window.addEventListener("message", (event) => {
       return;
     }
     const total = Object.keys(matchMap).length;
-    console.log(`[WorkManager] 수입결의 대기 매칭 결과: ${total}개 과제(지원기관 기준)에 참고용 입금 신호 있음`);
+    console.log(`[WorkManager] 수입결의 대기 매칭 결과: ${total}개 과제 매칭 확인`);
     // myProjects.json과는 별개로 incomeAlerts.json에만 반영됨 (background.js가 내보냄)
     saveIncomeAlerts(matchMap);
   }
